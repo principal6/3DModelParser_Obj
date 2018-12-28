@@ -7,7 +7,8 @@ ModelOBJ::ModelOBJ()
 	memset(ModelGroups, 0, sizeof(ModelGroups));
 	memset(ModelMaterials, 0, sizeof(ModelMaterials));
 	memset(ModelInstances, 0, sizeof(ModelInstances));
-
+	memset(MouseOverPerInstances, 0, sizeof(MouseOverPerInstances));
+	
 	numGroups		= 0;
 	memset(MtlFileName, 0, sizeof(MtlFileName));
 	numMaterials	= 0;
@@ -25,8 +26,6 @@ ModelOBJ::ModelOBJ()
 	memset(Indices, 0, sizeof(Indices));
 
 	numInstances	= 0;
-
-	MouseOver = false;
 }
 
 ModelOBJ::~ModelOBJ()
@@ -974,11 +973,7 @@ void ModelOBJ::DrawMesh_Opaque(LPDIRECT3DDEVICE9 D3DDevice)
 
 		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, false );
 
-		if (MouseOver)
-		{
-		}
-		else
-			D3DDevice->SetTexture(0, ModelTextures[i]);
+		D3DDevice->SetTexture(0, ModelTextures[i]);
 
 		D3DDevice->SetStreamSource(0, g_pModelVB, 0, sizeof(VERTEX_OBJ));
 		D3DDevice->SetFVF(D3DFVF_VERTEX_OBJ);
@@ -1018,10 +1013,6 @@ void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice)
 			mtrl.Power = 5.0f;
 		D3DDevice->SetMaterial( &mtrl );
 
-		if (MouseOver)
-		{
-		}
-		else
 		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, true );
 
 		D3DDevice->SetRenderState(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);
@@ -1039,47 +1030,107 @@ void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice)
 	return;
 }
 
-bool ModelOBJ::CheckMouseOver(PickingRay PR, int MouseX, int MouseY)
+PickingRay GetPickingRay(LPDIRECT3DDEVICE9 D3DDevice, int MouseX, int MouseY,
+	int ScreenWidth, int ScreenHeight, D3DXMATRIX matView, D3DXMATRIX matProj)
 {
+	if (MouseX < 0 || MouseY < 0 || MouseX > ScreenWidth || MouseY > ScreenHeight)
+		return PickingRay(D3DXVECTOR3(0,0,0), D3DXVECTOR3(9999.0f,0,0));
+
+	D3DVIEWPORT9 vp;
+	D3DXMATRIX InvView;
+
+	D3DXVECTOR3 MouseViewPortXY, PickingRayDir, PickingRayPos;
+
+	D3DDevice->GetViewport(&vp);
+	D3DXMatrixInverse(&InvView, NULL, &matView);
+
+	MouseViewPortXY.x = (( (((MouseX-vp.X)*2.0f/vp.Width ) - 1.0f)) - matProj._31 ) / matProj._11;
+	MouseViewPortXY.y = ((- (((MouseY-vp.Y)*2.0f/vp.Height) - 1.0f)) - matProj._32 ) / matProj._22;
+	MouseViewPortXY.z = 1.0f;
+
+	PickingRayDir.x = MouseViewPortXY.x*InvView._11 + MouseViewPortXY.y*InvView._21 + MouseViewPortXY.z*InvView._31;
+	PickingRayDir.y = MouseViewPortXY.x*InvView._12 + MouseViewPortXY.y*InvView._22 + MouseViewPortXY.z*InvView._32;
+	PickingRayDir.z = MouseViewPortXY.x*InvView._13 + MouseViewPortXY.y*InvView._23 + MouseViewPortXY.z*InvView._33;
+	D3DXVec3Normalize(&PickingRayDir, &PickingRayDir);
+	PickingRayPos.x = InvView._41;
+	PickingRayPos.y = InvView._42;
+	PickingRayPos.z = InvView._43;
+
+	return PickingRay(PickingRayPos, PickingRayDir);
+}
+
+bool ModelOBJ::CheckMouseOver(LPDIRECT3DDEVICE9 D3DDevice, int MouseX, int MouseY,
+	int ScreenWidth, int ScreenHeight, D3DXMATRIX matView, D3DXMATRIX matProj)
+{
+	PickingRay PR = GetPickingRay(D3DDevice, MouseX, MouseY, ScreenWidth, ScreenHeight, matView, matProj);
+
 	if (PR.Dir.x == 9999.0f)
 		return false;
 
-	for (int j = 0; j < numGroups; j++)
+	for (int m = 0; m < numInstances; m++)
 	{
-		int numIndices = ModelGroups[j].numIndices;
-		int IndexStart = ModelGroups[j].numStartIndexID;
+		MouseOverPerInstances[m] = false;
 
-		for (int i = 0; i < numIndices; i++)
+		for (int j = 0; j < numGroups; j++)
 		{
-			int numPrevVertices = 0;
+			int numIndices = ModelGroups[j].numIndices;
+			int IndexStart = ModelGroups[j].numStartIndexID;
 
-			if ( j > 0 )
+			for (int i = 0; i < numIndices; i++)
 			{
-				for (int k = 0; k < j; k++)
+				int numPrevVertices = 0;
+
+				if ( j > 0 )
 				{
-					numPrevVertices += ModelGroups[k].numVertices;
+					for (int k = 0; k < j; k++)
+					{
+						numPrevVertices += ModelGroups[k].numVertices;
+					}
 				}
-			}
 
-			int ID0 = Indices[IndexStart + i]._0 + numPrevVertices;
-			int ID1 = Indices[IndexStart + i]._1 + numPrevVertices;
-			int ID2 = Indices[IndexStart + i]._2 + numPrevVertices;
+				int ID0 = Indices[IndexStart + i]._0 + numPrevVertices;
+				int ID1 = Indices[IndexStart + i]._1 + numPrevVertices;
+				int ID2 = Indices[IndexStart + i]._2 + numPrevVertices;
 
-			D3DXVECTOR3 p0, p1, p2;
-			p0 = D3DXVECTOR3(Vertices[ID0].Position.x, Vertices[ID0].Position.y, Vertices[ID0].Position.z);
-			p1 = D3DXVECTOR3(Vertices[ID1].Position.x, Vertices[ID1].Position.y, Vertices[ID1].Position.z);
-			p2 = D3DXVECTOR3(Vertices[ID2].Position.x, Vertices[ID2].Position.y, Vertices[ID2].Position.z);
+				D3DXVECTOR3 p0, p1, p2;
+				p0 = D3DXVECTOR3(Vertices[ID0].Position.x, Vertices[ID0].Position.y, Vertices[ID0].Position.z);
+				p1 = D3DXVECTOR3(Vertices[ID1].Position.x, Vertices[ID1].Position.y, Vertices[ID1].Position.z);
+				p2 = D3DXVECTOR3(Vertices[ID2].Position.x, Vertices[ID2].Position.y, Vertices[ID2].Position.z);
 
-			float pU, pV, pDist;
+				// 인스턴스
+				D3DXMATRIX matInstTrans;
+				D3DXMATRIX matInstRotX;
+				D3DXMATRIX matInstRotY;
+				D3DXMATRIX matInstRotZ;
+				D3DXMATRIX matInstScal;
+				D3DXMATRIX matInstWorld;
 
-			if (D3DXIntersectTri(&p0, &p1, &p2, &PR.Pos, &PR.Dir, &pU, &pV, &pDist))
-			{
-				MouseOver = true;
-				return true;
+				D3DXMatrixTranslation(&matInstTrans,
+					ModelInstances[m].Translation.x, ModelInstances[m].Translation.y, ModelInstances[m].Translation.z);
+
+				D3DXMatrixRotationX(&matInstRotX, ModelInstances[m].Rotation.x);
+				D3DXMatrixRotationY(&matInstRotY, ModelInstances[m].Rotation.y);
+				D3DXMatrixRotationZ(&matInstRotZ, ModelInstances[m].Rotation.z);
+
+				D3DXMatrixScaling(&matInstScal,
+					ModelInstances[m].Scaling.x, ModelInstances[m].Scaling.y, ModelInstances[m].Scaling.z);
+				
+				matInstWorld = matInstTrans * matInstRotX * matInstRotY * matInstRotZ * matInstScal;
+
+				D3DXVec3TransformCoord(&p0, &p0, &matInstWorld);
+				D3DXVec3TransformCoord(&p1, &p1, &matInstWorld);
+				D3DXVec3TransformCoord(&p2, &p2, &matInstWorld);
+
+				float pU, pV, pDist;
+
+				if (D3DXIntersectTri(&p0, &p1, &p2, &PR.Pos, &PR.Dir, &pU, &pV, &pDist))
+				{
+					MouseOverPerInstances[m] = true;
+					return true;
+				}
 			}
 		}
 	}
 
-	MouseOver = false;
 	return false;
 }

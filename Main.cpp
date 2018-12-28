@@ -93,9 +93,9 @@ HRESULT InitD3D(HWND hWnd, HINSTANCE hInst)
 
 HRESULT InitModel()
 {
-	MyOBJModel[0].CreateModel(g_pd3dDevice, "Model\\", "TestGeos");
-	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(1.0f, 1.0f, 1.0f) );
-	//MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 50.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
+	MyOBJModel[0].CreateModel(g_pd3dDevice, "Model\\", "TestTeapot");
+	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
+	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 50.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
 
 	return S_OK;
 }
@@ -222,11 +222,13 @@ void DetectInput(HWND hWnd)
 		if(g_pDI->DIKeyboardHandler(DIK_B))	// B: 바운딩 박스 그리기
 		{
 			bBoundingBoxed = !bBoundingBoxed;
+			Sleep(120);
 		}
 
 		if(g_pDI->DIKeyboardHandler(DIK_N))	// N: 법선 벡터 그리기
 		{
 			bNormalVector = !bNormalVector;
+			Sleep(120);
 		}
 
 		if(g_pDI->DIKeyboardHandler(DIK_ESCAPE))	// ESC: 종료
@@ -234,33 +236,7 @@ void DetectInput(HWND hWnd)
 	}
 }
 
-PickingRay GetPickingRay()
-{
-	if (MouseScreen.x < 0 || MouseScreen.y < 0 || MouseScreen.x > ScreenWidth || MouseScreen.y > ScreenHeight)
-		return PickingRay(D3DXVECTOR3(0,0,0), D3DXVECTOR3(9999.0f,0,0));
 
-	D3DVIEWPORT9 vp;
-	D3DXMATRIX InvView;
-
-	D3DXVECTOR3 MouseViewPortXY, PickingRayDir, PickingRayPos;
-
-	g_pd3dDevice->GetViewport(&vp);
-	D3DXMatrixInverse(&InvView, NULL, &matView);
-
-	MouseViewPortXY.x = (( (((MouseScreen.x-vp.X)*2.0f/vp.Width ) - 1.0f)) - matProj._31 ) / matProj._11;
-	MouseViewPortXY.y = ((- (((MouseScreen.y-vp.Y)*2.0f/vp.Height) - 1.0f)) - matProj._32 ) / matProj._22;
-	MouseViewPortXY.z = 1.0f;
-
-	PickingRayDir.x = MouseViewPortXY.x*InvView._11 + MouseViewPortXY.y*InvView._21 + MouseViewPortXY.z*InvView._31;
-	PickingRayDir.y = MouseViewPortXY.x*InvView._12 + MouseViewPortXY.y*InvView._22 + MouseViewPortXY.z*InvView._32;
-	PickingRayDir.z = MouseViewPortXY.x*InvView._13 + MouseViewPortXY.y*InvView._23 + MouseViewPortXY.z*InvView._33;
-	D3DXVec3Normalize(&PickingRayDir, &PickingRayDir);
-	PickingRayPos.x = InvView._41;
-	PickingRayPos.y = InvView._42;
-	PickingRayPos.z = InvView._43;
-
-	return PickingRay(PickingRayPos, PickingRayDir);
-}
 
 VOID Render()
 {
@@ -282,7 +258,7 @@ VOID Render()
 			if (bBoundingBoxed == true)
 				MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
 			
-			MyOBJModel[0].CheckMouseOver(GetPickingRay(), MouseScreen.x, MouseScreen.y);
+			MyOBJModel[0].CheckMouseOver(g_pd3dDevice, MouseScreen.x, MouseScreen.y, ScreenWidth, ScreenHeight, matView, matProj);
 			MyOBJModel[0].DrawMesh_Opaque(g_pd3dDevice);
 		}
 
@@ -295,14 +271,19 @@ VOID Render()
 				MyOBJModel[0].ModelInstances[i].Scaling);
 			if (bBoundingBoxed == true)
 				MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
-			MyOBJModel[0].CheckMouseOver(GetPickingRay(), MouseScreen.x, MouseScreen.y);
+			MyOBJModel[0].CheckMouseOver(g_pd3dDevice, MouseScreen.x, MouseScreen.y, ScreenWidth, ScreenHeight, matView, matProj);
 			MyOBJModel[0].DrawMesh_Transparent(g_pd3dDevice);
-			MyOBJModel[0].DrawNormalVecters(g_pd3dDevice, 10.0f);
+
+			if (bNormalVector == true)
+				MyOBJModel[0].DrawNormalVecters(g_pd3dDevice, 4.0f);
 		}
 
 		g_Font.SetFontColor(0xFFFFFFFF);
 		g_Font.DrawTextA(0, 0, MouseScreen.x);
 		g_Font.DrawTextA(0, 20, MouseScreen.y);
+
+		g_Font.DrawTextA(0, 40, MyOBJModel[0].MouseOverPerInstances[0]);
+		g_Font.DrawTextA(0, 60, MyOBJModel[0].MouseOverPerInstances[1]);
 
 		g_pd3dDevice->EndScene();
 	}

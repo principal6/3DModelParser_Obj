@@ -126,7 +126,7 @@ public:
 
 	int						numInstances;
 	Instance_OBJ			ModelInstances[MAX_OBJ_INSTANCES];
-	bool					MouseOver;
+	bool					MouseOverPerInstances[MAX_OBJ_INSTANCES];
 
 	char					BaseDir[MAX_NAME_LEN];
 	void ModelOBJ::SetBaseDirection(char* Dir);
@@ -145,7 +145,8 @@ public:
 	void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice);
 	void ModelOBJ::DrawBoundingBoxes(LPDIRECT3DDEVICE9 D3DDevice);
 	HRESULT ModelOBJ::DrawNormalVecters(LPDIRECT3DDEVICE9 D3DDevice, float LenFactor);
-	bool ModelOBJ::CheckMouseOver(PickingRay PR, int MouseX, int MouseY);
+	bool ModelOBJ::CheckMouseOver(LPDIRECT3DDEVICE9 D3DDevice, int MouseX, int MouseY,
+		int ScreenWidth, int ScreenHeight, D3DXMATRIX matView, D3DXMATRIX matProj);
 
 	HRESULT ModelOBJ::SetTexture(LPDIRECT3DDEVICE9 D3DDevice, int GroupID);
 	HRESULT ModelOBJ::UpdateVertices(LPDIRECT3DDEVICE9 D3DDevice, int GroupID);
