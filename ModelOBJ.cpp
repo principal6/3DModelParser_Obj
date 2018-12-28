@@ -25,6 +25,8 @@ ModelOBJ::ModelOBJ()
 	memset(Indices, 0, sizeof(Indices));
 
 	numInstances	= 0;
+
+	MouseOver = false;
 }
 
 ModelOBJ::~ModelOBJ()
@@ -972,7 +974,12 @@ void ModelOBJ::DrawMesh_Opaque(LPDIRECT3DDEVICE9 D3DDevice)
 
 		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, false );
 
-		D3DDevice->SetTexture(0, ModelTextures[i]);
+		if (MouseOver)
+		{
+		}
+		else
+			D3DDevice->SetTexture(0, ModelTextures[i]);
+
 		D3DDevice->SetStreamSource(0, g_pModelVB, 0, sizeof(VERTEX_OBJ));
 		D3DDevice->SetFVF(D3DFVF_VERTEX_OBJ);
 		D3DDevice->SetIndices(g_pModelIB);
@@ -1011,6 +1018,10 @@ void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice)
 			mtrl.Power = 5.0f;
 		D3DDevice->SetMaterial( &mtrl );
 
+		if (MouseOver)
+		{
+		}
+		else
 		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, true );
 
 		D3DDevice->SetRenderState(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);
@@ -1026,4 +1037,49 @@ void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice)
 	}
 
 	return;
+}
+
+bool ModelOBJ::CheckMouseOver(PickingRay PR, int MouseX, int MouseY)
+{
+	if (PR.Dir.x == 9999.0f)
+		return false;
+
+	for (int j = 0; j < numGroups; j++)
+	{
+		int numIndices = ModelGroups[j].numIndices;
+		int IndexStart = ModelGroups[j].numStartIndexID;
+
+		for (int i = 0; i < numIndices; i++)
+		{
+			int numPrevVertices = 0;
+
+			if ( j > 0 )
+			{
+				for (int k = 0; k < j; k++)
+				{
+					numPrevVertices += ModelGroups[k].numVertices;
+				}
+			}
+
+			int ID0 = Indices[IndexStart + i]._0 + numPrevVertices;
+			int ID1 = Indices[IndexStart + i]._1 + numPrevVertices;
+			int ID2 = Indices[IndexStart + i]._2 + numPrevVertices;
+
+			D3DXVECTOR3 p0, p1, p2;
+			p0 = D3DXVECTOR3(Vertices[ID0].Position.x, Vertices[ID0].Position.y, Vertices[ID0].Position.z);
+			p1 = D3DXVECTOR3(Vertices[ID1].Position.x, Vertices[ID1].Position.y, Vertices[ID1].Position.z);
+			p2 = D3DXVECTOR3(Vertices[ID2].Position.x, Vertices[ID2].Position.y, Vertices[ID2].Position.z);
+
+			float pU, pV, pDist;
+
+			if (D3DXIntersectTri(&p0, &p1, &p2, &PR.Pos, &PR.Dir, &pU, &pV, &pDist))
+			{
+				MouseOver = true;
+				return true;
+			}
+		}
+	}
+
+	MouseOver = false;
+	return false;
 }

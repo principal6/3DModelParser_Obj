@@ -39,6 +39,9 @@ const int				ScreenHeight	= 600;
 bool					bBoundingBoxed	= false;
 bool					bNormalVector	= false;
 
+float					Debug0 = 0.0f;
+float					Debug1 = 0.0f;
+
 
 // 함수 원형 선언
 VOID Cleanup();
@@ -80,7 +83,8 @@ HRESULT InitD3D(HWND hWnd, HINSTANCE hInst)
 	g_pDI->CreateKeyboardDevice(DISCL_BACKGROUND|DISCL_NONEXCLUSIVE);
 	g_pDI->CreateMouseDevice(DISCL_BACKGROUND|DISCL_NONEXCLUSIVE);
 
-	g_Camera.SetCamera_FreeLook(0.0f, 2.0f, 0.0f);
+	//g_Camera.SetCamera_FreeLook(0.0f, 2.0f, 0.0f);
+	g_Camera.SetCamera_ThirdPerson(20.0f, 20.0f, 5.0f);
 
 	g_Font.CreateFontA(g_pd3dDevice, "Arial", 20, false, ScreenWidth, ScreenHeight);
 
@@ -99,7 +103,8 @@ HRESULT InitModel()
 VOID SetupCameraMatrices()
 {
 	// 뷰 행렬(카메라 설정)
-	g_Camera.UseCamera_FreeLook( g_pd3dDevice, &matView );
+	//g_Camera.UseCamera_FreeLook( g_pd3dDevice, &matView );
+	g_Camera.UseCamera_ThirdPerson( g_pd3dDevice, &matView, D3DXVECTOR3(5.0f, 20.0f, 5.0f));
 	
 	// 투영 행렬(원근감 설정)
 	D3DXMatrixPerspectiveFovLH( &matProj, D3DX_PI/4, 1.0f, 1.0f, 1000.0f );
@@ -172,21 +177,25 @@ void DetectInput(HWND hWnd)
 
 		if (MouseState.x < 0)	// 마우스 왼쪽으로 이동
 		{
+			if (MouseButtonState == 2)
 			g_Camera.RotateCamera_LeftRight(MouseState.x, 250.0f);
 		}
 
 		if (MouseState.x > 0)	// 마우스 오른쪽으로 이동
 		{
+			if (MouseButtonState == 2)
 			g_Camera.RotateCamera_LeftRight(MouseState.x, 250.0f);
 		}
 
 		if (MouseState.y < 0)	// 마우스 위로 이동
 		{
+			if (MouseButtonState == 2)
 			g_Camera.RotateCamera_UpDown(MouseState.y, 250.0f);
 		}
 
 		if (MouseState.y > 0)	// 마우스 아래로 이동
 		{
+			if (MouseButtonState == 2)
 			g_Camera.RotateCamera_UpDown(MouseState.y, 250.0f);
 		}
 
@@ -225,6 +234,34 @@ void DetectInput(HWND hWnd)
 	}
 }
 
+PickingRay GetPickingRay()
+{
+	if (MouseScreen.x < 0 || MouseScreen.y < 0 || MouseScreen.x > ScreenWidth || MouseScreen.y > ScreenHeight)
+		return PickingRay(D3DXVECTOR3(0,0,0), D3DXVECTOR3(9999.0f,0,0));
+
+	D3DVIEWPORT9 vp;
+	D3DXMATRIX InvView;
+
+	D3DXVECTOR3 MouseViewPortXY, PickingRayDir, PickingRayPos;
+
+	g_pd3dDevice->GetViewport(&vp);
+	D3DXMatrixInverse(&InvView, NULL, &matView);
+
+	MouseViewPortXY.x = (( (((MouseScreen.x-vp.X)*2.0f/vp.Width ) - 1.0f)) - matProj._31 ) / matProj._11;
+	MouseViewPortXY.y = ((- (((MouseScreen.y-vp.Y)*2.0f/vp.Height) - 1.0f)) - matProj._32 ) / matProj._22;
+	MouseViewPortXY.z = 1.0f;
+
+	PickingRayDir.x = MouseViewPortXY.x*InvView._11 + MouseViewPortXY.y*InvView._21 + MouseViewPortXY.z*InvView._31;
+	PickingRayDir.y = MouseViewPortXY.x*InvView._12 + MouseViewPortXY.y*InvView._22 + MouseViewPortXY.z*InvView._32;
+	PickingRayDir.z = MouseViewPortXY.x*InvView._13 + MouseViewPortXY.y*InvView._23 + MouseViewPortXY.z*InvView._33;
+	D3DXVec3Normalize(&PickingRayDir, &PickingRayDir);
+	PickingRayPos.x = InvView._41;
+	PickingRayPos.y = InvView._42;
+	PickingRayPos.z = InvView._43;
+
+	return PickingRay(PickingRayPos, PickingRayDir);
+}
+
 VOID Render()
 {
 	// 후면 버퍼와 Z 버퍼를 청소한다.
@@ -244,6 +281,8 @@ VOID Render()
 				MyOBJModel[0].ModelInstances[i].Scaling);
 			if (bBoundingBoxed == true)
 				MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
+			
+			MyOBJModel[0].CheckMouseOver(GetPickingRay(), MouseScreen.x, MouseScreen.y);
 			MyOBJModel[0].DrawMesh_Opaque(g_pd3dDevice);
 		}
 
@@ -256,6 +295,7 @@ VOID Render()
 				MyOBJModel[0].ModelInstances[i].Scaling);
 			if (bBoundingBoxed == true)
 				MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
+			MyOBJModel[0].CheckMouseOver(GetPickingRay(), MouseScreen.x, MouseScreen.y);
 			MyOBJModel[0].DrawMesh_Transparent(g_pd3dDevice);
 			MyOBJModel[0].DrawNormalVecters(g_pd3dDevice, 10.0f);
 		}

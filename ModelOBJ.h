@@ -115,17 +115,18 @@ public:
 
 	int						numMaterials;
 
-	int					numTPositions;
-	XMFLOAT3			TPositions[MAX_OBJ_POSITIONS];
-	int					numTNormals;
-	XMFLOAT3			TNormals[MAX_OBJ_NORMALS];
-	int					numTTextures;
-	XMFLOAT2			TTextures[MAX_OBJ_TEXTURES];
-	int					numTVertices;
-	int					numTIndices;
+	int						numTPositions;
+	XMFLOAT3				TPositions[MAX_OBJ_POSITIONS];
+	int						numTNormals;
+	XMFLOAT3				TNormals[MAX_OBJ_NORMALS];
+	int						numTTextures;
+	XMFLOAT2				TTextures[MAX_OBJ_TEXTURES];
+	int						numTVertices;
+	int						numTIndices;
 
 	int						numInstances;
 	Instance_OBJ			ModelInstances[MAX_OBJ_INSTANCES];
+	bool					MouseOver;
 
 	char					BaseDir[MAX_NAME_LEN];
 	void ModelOBJ::SetBaseDirection(char* Dir);
@@ -144,6 +145,7 @@ public:
 	void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice);
 	void ModelOBJ::DrawBoundingBoxes(LPDIRECT3DDEVICE9 D3DDevice);
 	HRESULT ModelOBJ::DrawNormalVecters(LPDIRECT3DDEVICE9 D3DDevice, float LenFactor);
+	bool ModelOBJ::CheckMouseOver(PickingRay PR, int MouseX, int MouseY);
 
 	HRESULT ModelOBJ::SetTexture(LPDIRECT3DDEVICE9 D3DDevice, int GroupID);
 	HRESULT ModelOBJ::UpdateVertices(LPDIRECT3DDEVICE9 D3DDevice, int GroupID);
