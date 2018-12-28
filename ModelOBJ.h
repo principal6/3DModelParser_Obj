@@ -125,6 +125,8 @@ public:
 	void ModelOBJ::SetInstance(int InstanceID, XMFLOAT3 Translation, XMFLOAT3 Rotation, XMFLOAT3 Scaling);
 
 	void ModelOBJ::DrawModel(LPDIRECT3DDEVICE9 D3DDevice);
+	void ModelOBJ::DrawMesh_Opaque(LPDIRECT3DDEVICE9 D3DDevice);
+	void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice);
 	void ModelOBJ::DrawBoundingBoxes(LPDIRECT3DDEVICE9 D3DDevice);
 	void ModelOBJ::Destroy();
 

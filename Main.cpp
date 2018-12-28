@@ -34,6 +34,7 @@ DWORD					SecondTimer		= 0;
 int						FPS				= 0;
 const int				ScreenWidth		= 1024;
 const int				ScreenHeight	= 768;
+bool					bBoundingBoxed	= false;
 
 
 // 함수 원형 선언
@@ -69,8 +70,6 @@ HRESULT InitD3D(HWND hWnd, HINSTANCE hInst)
 	g_pd3dDevice->SetRenderState( D3DRS_ZENABLE, TRUE );
 	//g_pd3dDevice->SetRenderState( D3DRS_FILLMODE, D3DFILL_WIREFRAME );
 
-	g_pd3dDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, true );
-
 	InitModel();
 
 	g_pDI = DirectInput::GetInstance();		// Direct Input 초기화
@@ -87,7 +86,7 @@ HRESULT InitModel()
 {
 	MyOBJModel[0].CreateModel(g_pd3dDevice, "Model\\", "TestMap");
 	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(1.0f, 1.0f, 1.0f) );
-	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 40.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
+	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 50.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
 
 	return S_OK;
 }
@@ -188,22 +187,27 @@ void DetectInput(HWND hWnd)
 
 		if(g_pDI->DIKeyboardHandler(DIK_W))	// W: 앞으로 이동
 		{
-			g_Camera.MoveCamera_BackForth(false, 0.8f);
+			g_Camera.MoveCamera_BackForth(false, 1.0f);
 		}
 
 		if(g_pDI->DIKeyboardHandler(DIK_S))	// S: 뒤로 이동
 		{
-			g_Camera.MoveCamera_BackForth(true, 0.8f);
+			g_Camera.MoveCamera_BackForth(true, 1.0f);
 		}
 
 		if(g_pDI->DIKeyboardHandler(DIK_A))	// A: 왼쪽으로 이동
 		{
-			g_Camera.MoveCamera_LeftRight(true, 0.8f);
+			g_Camera.MoveCamera_LeftRight(true, 1.0f);
 		}
 		
 		if(g_pDI->DIKeyboardHandler(DIK_D))	// D: 오른쪽으로 이동
 		{
-			g_Camera.MoveCamera_LeftRight(false, 0.8f);
+			g_Camera.MoveCamera_LeftRight(false, 1.0f);
+		}
+
+		if(g_pDI->DIKeyboardHandler(DIK_B))	// B: 바운딩 박스 그리기
+		{
+			bBoundingBoxed = !bBoundingBoxed;
 		}
 
 		if(g_pDI->DIKeyboardHandler(DIK_ESCAPE))	// ESC: 종료
@@ -228,10 +232,23 @@ VOID Render()
 			SetupModelMatrix(MyOBJModel[0].ModelInstances[i].Translation,
 				MyOBJModel[0].ModelInstances[i].Rotation,
 				MyOBJModel[0].ModelInstances[i].Scaling);
-			MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
-			MyOBJModel[0].DrawModel(g_pd3dDevice);
+			if (bBoundingBoxed == true)
+				MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
+			MyOBJModel[0].DrawMesh_Opaque(g_pd3dDevice);
 		}
-		
+
+		for (int i = 0; i < MyOBJModel[0].numInstances; i++)
+		{
+			//MyOBJModel[0].ModelInstances[i].Rotation.x += 0.01f;
+			//MyOBJModel[0].ModelInstances[i].Rotation.y += 0.01f;
+			SetupModelMatrix(MyOBJModel[0].ModelInstances[i].Translation,
+				MyOBJModel[0].ModelInstances[i].Rotation,
+				MyOBJModel[0].ModelInstances[i].Scaling);
+			if (bBoundingBoxed == true)
+				MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
+			MyOBJModel[0].DrawMesh_Transparent(g_pd3dDevice);
+		}
+
 		g_pd3dDevice->EndScene();
 	}
 

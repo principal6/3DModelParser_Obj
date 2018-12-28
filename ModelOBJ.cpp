@@ -845,9 +845,107 @@ void ModelOBJ::DrawModel(LPDIRECT3DDEVICE9 D3DDevice)
 		mtrl.Power = 5.0f;
 		D3DDevice->SetMaterial( &mtrl );
 
+		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, true );
+
 		D3DDevice->SetTextureStageState(0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1);
 		D3DDevice->SetTextureStageState(0,D3DTSS_ALPHAARG1,D3DTA_DIFFUSE);
+		
+		D3DDevice->SetRenderState(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);
+		D3DDevice->SetRenderState(D3DRS_DESTBLEND,D3DBLEND_INVSRCALPHA);
+		D3DDevice->SetRenderState(D3DRS_BLENDOP,D3DBLENDOP_ADD);
 
+		D3DDevice->SetTexture(0, ModelTextures[i]);
+		D3DDevice->SetStreamSource(0, g_pModelVB, 0, sizeof(VERTEX_OBJ));
+		D3DDevice->SetFVF(D3DFVF_VERTEX_OBJ);
+		D3DDevice->SetIndices(g_pModelIB);
+
+		D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
+	}
+
+	return;
+}
+
+void ModelOBJ::DrawMesh_Opaque(LPDIRECT3DDEVICE9 D3DDevice)
+{
+	// 모델의 각 메쉬를 그린다!
+	for (int i = 0; i < numGroups; i++)
+	{
+		UpdateVertices(D3DDevice, i);
+
+		if (ModelMaterials[ModelGroups[i].MaterialID].Transparency != 1)	// 알파값이 1이 아니면 종료
+			continue;
+
+		// 재질을 설정한다.
+		D3DMATERIAL9 mtrl;
+		ZeroMemory( &mtrl, sizeof( D3DMATERIAL9 ) );
+		mtrl.Diffuse.r = ModelMaterials[ModelGroups[i].MaterialID].Color_Diffuse.x;
+		mtrl.Diffuse.g = ModelMaterials[ModelGroups[i].MaterialID].Color_Diffuse.y;
+		mtrl.Diffuse.b = ModelMaterials[ModelGroups[i].MaterialID].Color_Diffuse.z;
+		mtrl.Diffuse.a = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
+		mtrl.Ambient.r = ModelMaterials[ModelGroups[i].MaterialID].Color_Ambient.x;
+		mtrl.Ambient.g = ModelMaterials[ModelGroups[i].MaterialID].Color_Ambient.y;
+		mtrl.Ambient.b = ModelMaterials[ModelGroups[i].MaterialID].Color_Ambient.z;
+		mtrl.Ambient.a = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
+		mtrl.Specular.r = ModelMaterials[ModelGroups[i].MaterialID].Color_Specular.x;
+		mtrl.Specular.g = ModelMaterials[ModelGroups[i].MaterialID].Color_Specular.y;
+		mtrl.Specular.b = ModelMaterials[ModelGroups[i].MaterialID].Color_Specular.z;
+		mtrl.Specular.a = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
+		mtrl.Power = 5.0f;
+		D3DDevice->SetMaterial( &mtrl );
+
+		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, false );
+
+		//D3DDevice->SetTextureStageState(0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1);
+		//D3DDevice->SetTextureStageState(0,D3DTSS_ALPHAARG1,D3DTA_DIFFUSE);
+		
+		//D3DDevice->SetRenderState(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);
+		//D3DDevice->SetRenderState(D3DRS_DESTBLEND,D3DBLEND_INVSRCALPHA);
+		//D3DDevice->SetRenderState(D3DRS_BLENDOP,D3DBLENDOP_ADD);
+
+		D3DDevice->SetTexture(0, ModelTextures[i]);
+		D3DDevice->SetStreamSource(0, g_pModelVB, 0, sizeof(VERTEX_OBJ));
+		D3DDevice->SetFVF(D3DFVF_VERTEX_OBJ);
+		D3DDevice->SetIndices(g_pModelIB);
+
+		D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
+	}
+
+	return;
+}
+
+void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice)
+{
+	// 모델의 각 메쉬를 그린다!
+	for (int i = 0; i < numGroups; i++)
+	{
+		UpdateVertices(D3DDevice, i);
+
+		if (ModelMaterials[ModelGroups[i].MaterialID].Transparency == 1)	// 알파값이 1이면 종료
+			continue;
+
+		// 재질을 설정한다.
+		D3DMATERIAL9 mtrl;
+		ZeroMemory( &mtrl, sizeof( D3DMATERIAL9 ) );
+		mtrl.Diffuse.r = ModelMaterials[ModelGroups[i].MaterialID].Color_Diffuse.x;
+		mtrl.Diffuse.g = ModelMaterials[ModelGroups[i].MaterialID].Color_Diffuse.y;
+		mtrl.Diffuse.b = ModelMaterials[ModelGroups[i].MaterialID].Color_Diffuse.z;
+		mtrl.Diffuse.a = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
+		mtrl.Ambient.r = ModelMaterials[ModelGroups[i].MaterialID].Color_Ambient.x;
+		mtrl.Ambient.g = ModelMaterials[ModelGroups[i].MaterialID].Color_Ambient.y;
+		mtrl.Ambient.b = ModelMaterials[ModelGroups[i].MaterialID].Color_Ambient.z;
+		mtrl.Ambient.a = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
+		mtrl.Specular.r = ModelMaterials[ModelGroups[i].MaterialID].Color_Specular.x;
+		mtrl.Specular.g = ModelMaterials[ModelGroups[i].MaterialID].Color_Specular.y;
+		mtrl.Specular.b = ModelMaterials[ModelGroups[i].MaterialID].Color_Specular.z;
+		mtrl.Specular.a = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
+		mtrl.Power = 5.0f;
+		D3DDevice->SetMaterial( &mtrl );
+
+		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, true );
+
+		D3DDevice->SetTextureStageState(0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1);
+		D3DDevice->SetTextureStageState(0,D3DTSS_ALPHAARG1,D3DTA_DIFFUSE);
+		
 		D3DDevice->SetRenderState(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);
 		D3DDevice->SetRenderState(D3DRS_DESTBLEND,D3DBLEND_INVSRCALPHA);
 		D3DDevice->SetRenderState(D3DRS_BLENDOP,D3DBLENDOP_ADD);
