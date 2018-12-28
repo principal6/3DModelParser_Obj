@@ -10,6 +10,7 @@ float4x4	matWVP;
 
 bool		UseTexture;
 float4		MtrlDiffuse;
+float4		SimpleColor;
 
 texture		DiffuseMap_Tex;
 texture		AnimationJoint_Tex;
@@ -33,7 +34,7 @@ sampler_state
 	Texture = (AnimationWeight_Tex);
 };
 
-struct VS_INPUT_INSTANCING
+struct VS_INPUT_INSTANCING_MD5
 {
 	// 정점 정보
 	float4	Position	: POSITION0;
@@ -52,6 +53,20 @@ struct VS_INPUT_INSTANCING
 	float	CurFrameTime : PSIZE4;
 	float	Frame0 : PSIZE5;
 	float	Frame1 : PSIZE6;
+};
+
+struct VS_INPUT_INSTANCING_OBJ
+{
+	// 정점 정보
+	float4	Position	: POSITION0;
+	float3	Normal		: NORMAL0;
+	float2	Texture		: TEXCOORD0;
+
+	// 인스턴스 정보
+	float4	matWorld0		: POSITION1;
+	float4	matWorld1		: POSITION2;
+	float4	matWorld2		: POSITION3;
+	float4	matWorld3		: POSITION4;
 };
 
 struct VS_INPUT_NoInstancing
@@ -231,7 +246,7 @@ float4 QuaternionRotate(float4 Quaternion, float4 Position)
 	return Output;
 }
 
-VS_OUTPUT vs_md5instancing(VS_INPUT_INSTANCING Input)
+VS_OUTPUT vs_md5instancing(VS_INPUT_INSTANCING_MD5 Input)
 {
 	VS_OUTPUT Output;
 
@@ -298,6 +313,24 @@ VS_OUTPUT vs_md5instancing(VS_INPUT_INSTANCING Input)
 	return(Output);
 }
 
+VS_OUTPUT vs_objinstancing(VS_INPUT_INSTANCING_OBJ Input)
+{
+	VS_OUTPUT Output;
+
+	// 인스턴스별 월드 행렬
+	float4x4 matWorld = float4x4(Input.matWorld0.x, Input.matWorld0.y, Input.matWorld0.z, Input.matWorld0.w,
+		Input.matWorld1.x, Input.matWorld1.y, Input.matWorld1.z, Input.matWorld1.w,
+		Input.matWorld2.x, Input.matWorld2.y, Input.matWorld2.z, Input.matWorld2.w,
+		Input.matWorld3.x, Input.matWorld3.y, Input.matWorld3.z, Input.matWorld3.w);
+
+	Output.Position = mul(Input.Position, matWorld);
+	Output.Position = mul(Output.Position, matVP);
+	Output.Normal = normalize(Input.Normal);
+	Output.Texture = Input.Texture;
+
+	return(Output);
+}
+
 VS_OUTPUT vs_noinstancing(VS_INPUT_NoInstancing Input)
 {
 	VS_OUTPUT Output;
@@ -309,7 +342,7 @@ VS_OUTPUT vs_noinstancing(VS_INPUT_NoInstancing Input)
 	return(Output);
 }
 
-float4 ps_main(VS_OUTPUT Input) : COLOR
+float4 ps_model(VS_OUTPUT Input) : COLOR
 {
 	if (UseTexture)
 	{
@@ -324,8 +357,7 @@ float4 ps_main(VS_OUTPUT Input) : COLOR
 
 float4 ps_color(VS_OUTPUT Input) : COLOR
 {
-	float4 color = float4(1, 0, 0, 1);
-	return color;
+	return SimpleColor;
 }
 
 technique HLSLMD5Instancing
@@ -333,7 +365,25 @@ technique HLSLMD5Instancing
 	pass Pass_0
 	{
 		VertexShader = compile vs_3_0 vs_md5instancing();
-		PixelShader = compile ps_3_0 ps_main();
+		PixelShader = compile ps_3_0 ps_model();
+	}
+}
+
+technique HLSLOBJInstancing
+{
+	pass Pass_0
+	{
+		VertexShader = compile vs_3_0 vs_objinstancing();
+		PixelShader = compile ps_3_0 ps_model();
+	}
+}
+
+technique HLSLOBJInstancing_COLOR
+{
+	pass Pass_0
+	{
+		VertexShader = compile vs_3_0 vs_objinstancing();
+		PixelShader = compile ps_3_0 ps_color();
 	}
 }
 
@@ -342,6 +392,6 @@ technique HLSLNoInstancing
 	pass Pass_0
 	{
 		VertexShader = compile vs_3_0 vs_noinstancing();
-		PixelShader = compile ps_3_0 ps_main();
+		PixelShader = compile ps_3_0 ps_model();
 	}
 }

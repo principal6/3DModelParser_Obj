@@ -4,10 +4,9 @@
 #include "Camera.h"
 #include "Font.h"
 #include "Grid.h"
-#include <crtdbg.h>
 
 #ifdef _DEBUG	// 메모리 누수 검사
-#define new new( _CLIENT_BLOCK, __FILE, __LINE__)
+#define new new( _CLIENT_BLOCK, __FILE__, __LINE__)
 #endif
 
 
@@ -38,7 +37,7 @@ D3DXMATRIXA16			matView, matProj;
 
 
 // 기타 변수 선언
-DWORD					SecondTimer		= 0;
+ULONGLONG				SecondTimer		= 0;
 int						FPS				= 0;
 int						FPS_Shown		= 0;
 
@@ -69,6 +68,7 @@ HRESULT InitD3D( HWND hWnd, HINSTANCE hInst )
 	d3dpp.EnableAutoDepthStencil = TRUE;		// 자동 깊이 공판(Depth Stencil)을 사용한다. (그래야 컴퓨터가 알아서 멀리 있는 걸 먼저 그려줌★)
 	d3dpp.AutoDepthStencilFormat = D3DFMT_D16;	// 깊이 공판 형식: D3DFMT_D16
 	d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;	// 후면 버퍼 형식: D3DFMT_UNKNOWN는 현재 바탕화면 포맷과 일치
+	d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
 
 	if( FAILED( g_pD3D->CreateDevice( D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, &g_pd3dDevice ) ) )
 		return E_FAIL;
@@ -102,8 +102,15 @@ HRESULT InitD3D( HWND hWnd, HINSTANCE hInst )
 
 HRESULT InitModel()
 {
-	MyOBJModel[0].CreateModel(g_pd3dDevice, "Model\\", "TestGeos", g_pHLSL);
-	MyOBJModel[0].AddInstance( XMFLOAT3(10.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, D3DX_PI/2, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
+	MyOBJModel[0].UseHLSLInstancing = true;
+	MyOBJModel[0].CreateModel(g_pd3dDevice, "Model\\", "BoxAndPyramide", g_pHLSL);
+
+	for (int i = 0; i < 800; i++)
+	{
+		MyOBJModel[0].AddInstance(XMFLOAT3((i % 20) * 15, 0.0f, (i / 20) * 15), XMFLOAT3(0.0f, D3DX_PI / 2, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f));
+	}
+
+	MyOBJModel[0].AddInstanceEnd();
 
 	return S_OK;
 }
@@ -218,30 +225,37 @@ VOID Render()
 	{
 		// 카메라 설정
 		g_Camera.UseCamera_FreeLook();
-		g_Camera.SetProjection(1000.0f);
+		g_Camera.SetProjection(10000.0f);
 
 		g_Grid.DrawGrid();
 
 		// 조명 기능을 켠다. (HLSL을 쓰지 않을 때는 반드시 켜야만 알파 블렌딩이 된다!★★)
 		//g_pd3dDevice->SetRenderState(D3DRS_LIGHTING, true);
 
+		MyOBJModel[0].DrawMesh_HLSLINST_Opaque(g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
+		MyOBJModel[0].DrawMesh_HLSLINST_Transparent(g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
+		if (bDrawBoundingBoxes == true)
+			MyOBJModel[0].DrawBoundingBoxes_HLSLINST(g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
+		if (bDrawNormalVectors == true)
+			MyOBJModel[0].DrawNormalVecters_HLSLINST(1.0f, g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
+
 		for (int i = 0; i < MyOBJModel[0].numInstances; i++)
 		{
 			//MyOBJModel[0].DrawModel(i);
 			//MyOBJModel[0].DrawModel_HLSL(i, g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
 			//MyOBJModel[0].DrawMesh_Opaque(i);
-			MyOBJModel[0].DrawMesh_HLSL_Opaque(i, g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
+			//MyOBJModel[0].DrawMesh_HLSL_Opaque(i, g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
 		}
 
 		for (int i = 0; i < MyOBJModel[0].numInstances; i++)
 		{
 			//MyOBJModel[0].DrawMesh_Transparent(i);
-			MyOBJModel[0].DrawMesh_HLSL_Transparent(i, g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
+			//MyOBJModel[0].DrawMesh_HLSL_Transparent(i, g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
 
-			if (bDrawBoundingBoxes == true)
-				MyOBJModel[0].DrawBoundingBoxes();
-			if (bDrawNormalVectors == true)
-				MyOBJModel[0].DrawNormalVecters(1.0f);
+			//if (bDrawBoundingBoxes == true)
+				//MyOBJModel[0].DrawBoundingBoxes();
+			//if (bDrawNormalVectors == true)
+				//MyOBJModel[0].DrawNormalVecters(1.0f);
 
 		}
 
@@ -324,9 +338,9 @@ INT WINAPI WinMain( HINSTANCE hInst, HINSTANCE, LPSTR, INT )
 			DetectInput(hWnd);	// Direct Input 키보드&마우스 입력 감지!
 			Render();
 
-			if (GetTickCount() >= SecondTimer + 1000)	// 초시계
+			if (GetTickCount64() >= SecondTimer + 1000)	// 초시계
 			{
-				SecondTimer = GetTickCount();
+				SecondTimer = GetTickCount64();
 				FPS_Shown = FPS;
 				FPS = 0;
 			}
@@ -343,6 +357,7 @@ VOID Cleanup()
 	g_pDI->ShutdownDirectInput();
 	g_pDI->DeleteInstance();
 
-	SAFE_RELEASE(g_pd3dDevice);
 	SAFE_RELEASE(g_pD3D);
+	SAFE_RELEASE(g_pd3dDevice);
+	SAFE_RELEASE(g_pHLSL);
 }
