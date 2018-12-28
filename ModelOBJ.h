@@ -27,18 +27,19 @@ struct VERTEX_OBJ	// 위치 -> 법선 -> 텍스처 순서를 반드시 지켜야 함!★★★
 
 struct VERTEX_OBJ_BB
 {
-	XMFLOAT3 Position;
+	XMFLOAT3	Position;
+	D3DCOLOR	Color;
 };
 
 struct VERTEX_OBJ_NORMAL
 {
-	XMFLOAT3 Normal;
+	XMFLOAT3	Normal;
+	D3DCOLOR	Color;
 };
 
-
 #define D3DFVF_VERTEX_OBJ (D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1)
-#define D3DFVF_VERTEX_OBJ_BB (D3DFVF_XYZ)
-#define D3DFVF_VERTEX_OBJ_NORMAL (D3DFVF_XYZ)
+#define D3DFVF_VERTEX_OBJ_BB (D3DFVF_XYZ | D3DFVF_DIFFUSE)
+#define D3DFVF_VERTEX_OBJ_NORMAL (D3DFVF_XYZ | D3DFVF_DIFFUSE)
 
 struct INDEX_OBJ
 {
@@ -127,12 +128,14 @@ public:
 	int						numInstances;
 	Instance_OBJ			ModelInstances[MAX_OBJ_INSTANCES];
 	bool					MouseOverPerInstances[MAX_OBJ_INSTANCES];
+	float					DistanceCmp[MAX_OBJ_INSTANCES];
+	XMFLOAT3				PickedPosition[MAX_OBJ_INSTANCES];
 
 	char					BaseDir[MAX_NAME_LEN];
 	void ModelOBJ::SetBaseDirection(char* Dir);
 
 	LPDIRECT3DTEXTURE9		ModelTextures[MAX_OBJ_MATERIALS];
-	bool ModelOBJ::CreateModel(LPDIRECT3DDEVICE9 D3DDevice, char* BaseDir, char* FileNameWithoutExtension);
+	bool ModelOBJ::CreateModel(LPDIRECT3DDEVICE9 D3DDevice, char* BaseDir, char* FileNameWithoutExtension, LPD3DXEFFECT HLSL = NULL);
 		bool ModelOBJ::OpenMeshFromFile(char* FileName);
 		bool ModelOBJ::OpenMaterialFromFile(char* FileName);
 	void ModelOBJ::CreateBoundingBoxes();
@@ -140,23 +143,37 @@ public:
 	void ModelOBJ::AddInstance(XMFLOAT3 Translation, XMFLOAT3 Rotation, XMFLOAT3 Scaling);
 	void ModelOBJ::SetInstance(int InstanceID, XMFLOAT3 Translation, XMFLOAT3 Rotation, XMFLOAT3 Scaling);
 
-	void ModelOBJ::DrawModel(LPDIRECT3DDEVICE9 D3DDevice);
-	void ModelOBJ::DrawMesh_Opaque(LPDIRECT3DDEVICE9 D3DDevice);
-	void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice);
-	void ModelOBJ::DrawBoundingBoxes(LPDIRECT3DDEVICE9 D3DDevice);
-	HRESULT ModelOBJ::DrawNormalVecters(LPDIRECT3DDEVICE9 D3DDevice, float LenFactor);
-	bool ModelOBJ::CheckMouseOver(LPDIRECT3DDEVICE9 D3DDevice, int MouseX, int MouseY,
-		int ScreenWidth, int ScreenHeight, D3DXMATRIX matView, D3DXMATRIX matProj);
+	void ModelOBJ::DrawModel(int InstanceID);
+	void ModelOBJ::DrawModel_HLSL(int InstanceID, D3DXMATRIX matView, D3DXMATRIX matProj);
+	void ModelOBJ::DrawMesh_Opaque(int InstanceID);
+	void ModelOBJ::DrawMesh_Transparent(int InstanceID);
+	void ModelOBJ::SetHLSLTexture(int GroupID);
+	void ModelOBJ::DrawMesh_HLSL_Opaque(int InstanceID, D3DXMATRIX matView, D3DXMATRIX matProj);
+	void ModelOBJ::DrawMesh_HLSL_Transparent(int InstanceID, D3DXMATRIX matView, D3DXMATRIX matProj);
 
-	HRESULT ModelOBJ::SetTexture(LPDIRECT3DDEVICE9 D3DDevice, int GroupID);
-	HRESULT ModelOBJ::UpdateVertices(LPDIRECT3DDEVICE9 D3DDevice, int GroupID);
+	void ModelOBJ::DrawBoundingBoxes();
+	HRESULT ModelOBJ::DrawNormalVecters(float LenFactor);
+	PickingRay ModelOBJ::GetPickingRay(int MouseX, int MouseY,
+		int ScreenWidth, int ScreenHeight, D3DXMATRIX matView, D3DXMATRIX matProj);
+	bool ModelOBJ::CheckMouseOverPerInstance(int InstanceID, int MouseX, int MouseY,
+		int ScreenWidth, int ScreenHeight, D3DXMATRIX matView, D3DXMATRIX matProj);
+	void ModelOBJ::CheckMouseOverFinal();
+
+	HRESULT ModelOBJ::UpdateVertices(int GroupID);
+	HRESULT ModelOBJ::SetTexture(int GroupID);
 
 private:
 	Object_OBJ		ModelObject;
 	Group_OBJ		ModelGroups[MAX_OBJ_GROUPS+1];
 	Material_OBJ	ModelMaterials[MAX_OBJ_MATERIALS];
 	BoundingBox_OBJ	ModelBoundingBoxes[MAX_OBJ_GROUPS];
+	D3DXMATRIX		matModelWorld[MAX_OBJ_INSTANCES];
 
 	VERTEX_OBJ		Vertices[MAX_OBJ_VERTICES];
 	INDEX_OBJ		Indices[MAX_OBJ_INDICES];
+
+	LPDIRECT3DDEVICE9		pDevice;
+	LPD3DXEFFECT			pHLSL;
+	LPDIRECT3DVERTEXBUFFER9	pModelVB;
+	LPDIRECT3DINDEXBUFFER9	pModelIB;
 };

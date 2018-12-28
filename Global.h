@@ -5,12 +5,18 @@
 	#include <xnamath.h>
 	#include <iostream>
 
-	extern LPDIRECT3DVERTEXBUFFER9	g_pModelVB;
-	extern LPDIRECT3DINDEXBUFFER9	g_pModelIB;
-
 	#ifndef SAFE_RELEASE
 	#define SAFE_RELEASE(p)	if(p) {p->Release(); p=NULL;}
 	#endif
+
+	#ifndef SAFE_DELETE
+	#define SAFE_DELETE(p)	if(p) {delete p; p=NULL;}
+	#endif
+
+	#ifndef SAFE_DELETEARRAY
+	#define SAFE_DELETEARRAY(p)	if(p) {delete[] p; p=NULL;}
+	#endif
+
 
 	struct PickingRay
 	{

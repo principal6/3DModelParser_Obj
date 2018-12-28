@@ -25,6 +25,10 @@ private:
 	char					m_keyboard[KEYS];
 	DIMOUSESTATE2			m_diMouseState;
 
+	bool	MouseButtonDown[3];
+	bool	MouseButtonUp[3];
+	bool	MouseButtonIdle[3];
+
 	int m_nX, m_nY;	// 마우스 위치
 
 	DirectInput()	// 모든 변수 초기화
@@ -71,6 +75,8 @@ public:
 	bool DIKeyboardHandler(DWORD dkcode);
 	D3DXVECTOR3 DIMouseHandler(void);
 	bool DIMouseButtonHandler(int button);
+	bool OnMouseButtonDown(int button);
+	bool OnMouseButtonUp(int button);
 };
 
 #endif 

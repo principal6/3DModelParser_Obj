@@ -6,8 +6,11 @@ ModelOBJ::ModelOBJ()
 	memset(&ModelObject, 0, sizeof(ModelObject));
 	memset(ModelGroups, 0, sizeof(ModelGroups));
 	memset(ModelMaterials, 0, sizeof(ModelMaterials));
+
 	memset(ModelInstances, 0, sizeof(ModelInstances));
 	memset(MouseOverPerInstances, 0, sizeof(MouseOverPerInstances));
+	memset(DistanceCmp, 0, sizeof(DistanceCmp));
+	memset(PickedPosition, 0, sizeof(PickedPosition));
 	
 	numGroups		= 0;
 	memset(MtlFileName, 0, sizeof(MtlFileName));
@@ -34,10 +37,20 @@ ModelOBJ::~ModelOBJ()
 	{
 		SAFE_RELEASE(ModelTextures[i]);
 	}
+
+	SAFE_RELEASE(pModelVB);
+	SAFE_RELEASE(pModelIB);
+
+	pDevice	= NULL;
+	pHLSL	= NULL;
 }
 
-bool ModelOBJ::CreateModel(LPDIRECT3DDEVICE9 D3DDevice, char* BaseDir, char* FileNameWithoutExtension)
+bool ModelOBJ::CreateModel(LPDIRECT3DDEVICE9 D3DDevice, char* BaseDir, char* FileNameWithoutExtension, LPD3DXEFFECT HLSL)
 {
+	// 포인터 지정
+	pDevice = D3DDevice;
+	pHLSL	= HLSL;
+
 	// 모델 파일이 있는 폴더 설정
 	SetBaseDirection(BaseDir);
 
@@ -64,7 +77,7 @@ bool ModelOBJ::CreateModel(LPDIRECT3DDEVICE9 D3DDevice, char* BaseDir, char* Fil
 	// 모델 텍스처 불러오기
 	for (int i = 0; i < numGroups; i++)
 	{
-		SetTexture(D3DDevice, i);
+		SetTexture(i);
 	}
 
 	// 바운딩 박스 생성하기
@@ -117,9 +130,7 @@ void ModelOBJ::AddInstance(XMFLOAT3 Translation, XMFLOAT3 Rotation, XMFLOAT3 Sca
 
 	memset(&ModelInstances[numInstances-1], 0, sizeof(ModelInstances[numInstances-1]));
 
-	ModelInstances[numInstances-1].Translation = Translation;
-	ModelInstances[numInstances-1].Rotation = Rotation;
-	ModelInstances[numInstances-1].Scaling = Scaling;
+	SetInstance(numInstances-1, Translation, Rotation, Scaling);
 
 	return;
 }
@@ -129,6 +140,23 @@ void ModelOBJ::SetInstance(int InstanceID, XMFLOAT3 Translation, XMFLOAT3 Rotati
 	ModelInstances[InstanceID].Translation = Translation;
 	ModelInstances[InstanceID].Rotation = Rotation;
 	ModelInstances[InstanceID].Scaling = Scaling;
+
+	// 월드 행렬(위치, 회전, 크기 설정)
+	D3DXMatrixIdentity( &matModelWorld[InstanceID] );
+
+		D3DXMATRIXA16 matTrans;
+		D3DXMATRIXA16 matRotX;
+		D3DXMATRIXA16 matRotY;
+		D3DXMATRIXA16 matRotZ;
+		D3DXMATRIXA16 matSize;
+
+		D3DXMatrixTranslation(&matTrans, Translation.x, Translation.y, Translation.z);
+		D3DXMatrixRotationX(&matRotX, Rotation.x);
+		D3DXMatrixRotationY(&matRotY, Rotation.y);				// Y축을 기준으로 회전 (즉, X&Z가 회전함)
+		D3DXMatrixRotationZ(&matRotZ, Rotation.z);
+		D3DXMatrixScaling(&matSize, Scaling.x, Scaling.y, Scaling.z);
+
+	matModelWorld[InstanceID] = matModelWorld[InstanceID] * matRotX * matRotY * matRotZ * matSize * matTrans;
 
 	return;
 }
@@ -646,13 +674,10 @@ bool ModelOBJ::OpenMaterialFromFile(char* FileName)
 	return true;
 }
 
-HRESULT ModelOBJ::UpdateVertices(LPDIRECT3DDEVICE9 D3DDevice, int GroupID)
+HRESULT ModelOBJ::UpdateVertices(int GroupID)
 {
-	if( g_pModelVB != NULL )
-		g_pModelVB->Release();
-
-	if( g_pModelIB != NULL )
-		g_pModelIB->Release();
+	SAFE_RELEASE(pModelVB);
+	SAFE_RELEASE(pModelIB);
 
 	int numVertices = ModelGroups[GroupID].numVertices;
 	int numIndices = ModelGroups[GroupID].numIndices;
@@ -675,14 +700,14 @@ HRESULT ModelOBJ::UpdateVertices(LPDIRECT3DDEVICE9 D3DDevice, int GroupID)
 		}
 
 		int SizeOfVertices = sizeof(VERTEX_OBJ)*numVertices;
-		if (FAILED(D3DDevice->CreateVertexBuffer(SizeOfVertices, 0, D3DFVF_VERTEX_OBJ, D3DPOOL_DEFAULT, &g_pModelVB, NULL)))
+		if (FAILED(pDevice->CreateVertexBuffer(SizeOfVertices, 0, D3DFVF_VERTEX_OBJ, D3DPOOL_DEFAULT, &pModelVB, NULL)))
 			return E_FAIL;
 	
 		VOID* pVertices;
-		if (FAILED(g_pModelVB->Lock(0, SizeOfVertices, (void**)&pVertices, 0)))
+		if (FAILED(pModelVB->Lock(0, SizeOfVertices, (void**)&pVertices, 0)))
 			return E_FAIL;
 		memcpy(pVertices, NewVertices, SizeOfVertices);
-		g_pModelVB->Unlock();
+		pModelVB->Unlock();
 
 	delete[] NewVertices;
 
@@ -697,24 +722,23 @@ HRESULT ModelOBJ::UpdateVertices(LPDIRECT3DDEVICE9 D3DDevice, int GroupID)
 		}
 
 		int SizeOfIndices = sizeof(INDEX_OBJ)*numIndices;
-		if (FAILED(D3DDevice->CreateIndexBuffer(SizeOfIndices, 0, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &g_pModelIB, NULL)))
+		if (FAILED(pDevice->CreateIndexBuffer(SizeOfIndices, 0, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &pModelIB, NULL)))
 			return E_FAIL;
 
 		VOID* pIndices;
-		if (FAILED(g_pModelIB->Lock(0, SizeOfIndices, (void **)&pIndices, 0)))
+		if (FAILED(pModelIB->Lock(0, SizeOfIndices, (void **)&pIndices, 0)))
 			return E_FAIL;
 		memcpy(pIndices, NewIndices, SizeOfIndices);
-		g_pModelIB->Unlock();
+		pModelIB->Unlock();
 	
 	delete[] NewIndices;
 
 	return S_OK;	// 함수 종료!
 }
 
-HRESULT ModelOBJ::SetTexture(LPDIRECT3DDEVICE9 D3DDevice, int GroupID)
+HRESULT ModelOBJ::SetTexture(int GroupID)
 {
-	if ( ModelTextures[GroupID] != NULL)
-		ModelTextures[GroupID]->Release();
+	SAFE_RELEASE(ModelTextures[GroupID]);
 
 	// 텍스처 불러오기
 	char	NewFileName[MAX_NAME_LEN] = {0};
@@ -728,20 +752,17 @@ HRESULT ModelOBJ::SetTexture(LPDIRECT3DDEVICE9 D3DDevice, int GroupID)
 	}
 	strcat_s(NewFileName, ModelMaterials[MaterialID].TextureFileName);
 
-	D3DXCreateTextureFromFile(D3DDevice, NewFileName, &ModelTextures[GroupID]);
+	D3DXCreateTextureFromFile(pDevice, NewFileName, &ModelTextures[GroupID]);
 
 	return S_OK;
 }
 
-void ModelOBJ::DrawBoundingBoxes(LPDIRECT3DDEVICE9 D3DDevice)
+void ModelOBJ::DrawBoundingBoxes()
 {
 	for (int i = 0; i < numGroups; i++)
 	{
-		if( g_pModelVB != NULL )
-			g_pModelVB->Release();
-
-		if( g_pModelIB != NULL )
-			g_pModelIB->Release();
+		SAFE_RELEASE(pModelVB);
+		SAFE_RELEASE(pModelIB);
 
 		int numVertices = 8;	// 상자니까 점 8개 필요
 		VERTEX_OBJ_BB *NewVertices = new VERTEX_OBJ_BB[numVertices];
@@ -771,15 +792,20 @@ void ModelOBJ::DrawBoundingBoxes(LPDIRECT3DDEVICE9 D3DDevice)
 				NewVertices[7].Position.y += YLen;
 				NewVertices[7].Position.z += ZLen;
 
+			for (int i = 0; i < 8; i++)
+			{
+				NewVertices[i].Color = D3DCOLOR_RGBA(255, 255, 0, 255);
+			}
+
 			int SizeOfVertices = sizeof(VERTEX_OBJ_BB)*numVertices;
-			if (FAILED(D3DDevice->CreateVertexBuffer(SizeOfVertices, 0, D3DFVF_VERTEX_OBJ_BB, D3DPOOL_DEFAULT, &g_pModelVB, NULL)))
+			if (FAILED(pDevice->CreateVertexBuffer(SizeOfVertices, 0, D3DFVF_VERTEX_OBJ_BB, D3DPOOL_DEFAULT, &pModelVB, NULL)))
 				return;
 	
 			VOID* pVertices;
-			if (FAILED(g_pModelVB->Lock(0, SizeOfVertices, (void**)&pVertices, 0)))
+			if (FAILED(pModelVB->Lock(0, SizeOfVertices, (void**)&pVertices, 0)))
 				return;
 			memcpy(pVertices, NewVertices, SizeOfVertices);
-			g_pModelVB->Unlock();
+			pModelVB->Unlock();
 
 		delete[] NewVertices;
 		
@@ -801,38 +827,34 @@ void ModelOBJ::DrawBoundingBoxes(LPDIRECT3DDEVICE9 D3DDevice)
 			NewIndices[11]._0 = 7, NewIndices[11]._1 = 4;
 
 			int SizeOfIndices = sizeof(INDEX_OBJ_BB)*numIndices;
-			if (FAILED(D3DDevice->CreateIndexBuffer(SizeOfIndices, 0, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &g_pModelIB, NULL)))
+			if (FAILED(pDevice->CreateIndexBuffer(SizeOfIndices, 0, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &pModelIB, NULL)))
 				return;
 
 			VOID* pIndices;
-			if (FAILED(g_pModelIB->Lock(0, SizeOfIndices, (void **)&pIndices, 0)))
+			if (FAILED(pModelIB->Lock(0, SizeOfIndices, (void **)&pIndices, 0)))
 				return;
 			memcpy(pIndices, NewIndices, SizeOfIndices);
-			g_pModelIB->Unlock();
+			pModelIB->Unlock();
 	
 		delete[] NewIndices;
 
+		pDevice->SetTexture(0, 0);
+		pDevice->SetStreamSource(0, pModelVB, 0, sizeof(VERTEX_OBJ_BB));
+		pDevice->SetFVF(D3DFVF_VERTEX_OBJ_BB);
+		pDevice->SetIndices(pModelIB);
 
-		D3DDevice->SetStreamSource(0, g_pModelVB, 0, sizeof(VERTEX_OBJ_BB));
-		D3DDevice->SetFVF(D3DFVF_VERTEX_OBJ_BB);
-		D3DDevice->SetIndices(g_pModelIB);
-
-		D3DDevice->DrawIndexedPrimitive(D3DPT_LINELIST, 0, 0, numVertices, 0, numIndices);
+		pDevice->DrawIndexedPrimitive(D3DPT_LINELIST, 0, 0, numVertices, 0, numIndices);
 	}
 
 	return;
 }
 
-HRESULT ModelOBJ::DrawNormalVecters(LPDIRECT3DDEVICE9 D3DDevice, float LenFactor)
+HRESULT ModelOBJ::DrawNormalVecters(float LenFactor)
 {
 	for (int i = 0; i < numGroups; i++)
 	{
-
-		if( g_pModelVB != NULL )
-			g_pModelVB->Release();
-
-		if( g_pModelIB != NULL )
-			g_pModelIB->Release();
+		SAFE_RELEASE(pModelVB);
+		SAFE_RELEASE(pModelIB);
 
 		int numVertices = ModelGroups[i].numVertices * 2;
 		int numIndices = numVertices / 2;
@@ -842,25 +864,28 @@ HRESULT ModelOBJ::DrawNormalVecters(LPDIRECT3DDEVICE9 D3DDevice, float LenFactor
 		// 정점 버퍼 업데이트!
 		VERTEX_OBJ_NORMAL *NewVertices = new VERTEX_OBJ_NORMAL[numVertices];
 
-			for (int i = 0; i < numVertices; i+=2)
+			for (int j = 0; j < numVertices; j+=2)
 			{
-				NewVertices[i].Normal.x = Vertices[numStartVID + i/2].Position.x;
-				NewVertices[i].Normal.y = Vertices[numStartVID + i/2].Position.y;
-				NewVertices[i].Normal.z = Vertices[numStartVID + i/2].Position.z;
-				NewVertices[i+1].Normal.x = NewVertices[i].Normal.x + Vertices[numStartVID + i/2].Normal.x * LenFactor;
-				NewVertices[i+1].Normal.y = NewVertices[i].Normal.y + Vertices[numStartVID + i/2].Normal.y * LenFactor;
-				NewVertices[i+1].Normal.z = NewVertices[i].Normal.z + Vertices[numStartVID + i/2].Normal.z * LenFactor;
+				NewVertices[j].Normal.x = Vertices[numStartVID + j/2].Position.x;
+				NewVertices[j].Normal.y = Vertices[numStartVID + j/2].Position.y;
+				NewVertices[j].Normal.z = Vertices[numStartVID + j/2].Position.z;
+				NewVertices[j+1].Normal.x = NewVertices[j].Normal.x + Vertices[numStartVID + j/2].Normal.x * LenFactor;
+				NewVertices[j+1].Normal.y = NewVertices[j].Normal.y + Vertices[numStartVID + j/2].Normal.y * LenFactor;
+				NewVertices[j+1].Normal.z = NewVertices[j].Normal.z + Vertices[numStartVID + j/2].Normal.z * LenFactor;
+
+				NewVertices[j].Color = D3DCOLOR_RGBA(255, 0, 255, 255);
+				NewVertices[j+1].Color = D3DCOLOR_RGBA(255, 0, 255, 255);
 			}
 
 			int SizeOfVertices = sizeof(VERTEX_OBJ_NORMAL)*numVertices;
-			if (FAILED(D3DDevice->CreateVertexBuffer(SizeOfVertices, 0, D3DFVF_VERTEX_OBJ_NORMAL, D3DPOOL_DEFAULT, &g_pModelVB, NULL)))
+			if (FAILED(pDevice->CreateVertexBuffer(SizeOfVertices, 0, D3DFVF_VERTEX_OBJ_NORMAL, D3DPOOL_DEFAULT, &pModelVB, NULL)))
 				return E_FAIL;
 	
 			VOID* pVertices;
-			if (FAILED(g_pModelVB->Lock(0, SizeOfVertices, (void**)&pVertices, 0)))
+			if (FAILED(pModelVB->Lock(0, SizeOfVertices, (void**)&pVertices, 0)))
 				return E_FAIL;
 			memcpy(pVertices, NewVertices, SizeOfVertices);
-			g_pModelVB->Unlock();
+			pModelVB->Unlock();
 
 		delete[] NewVertices;
 
@@ -869,41 +894,44 @@ HRESULT ModelOBJ::DrawNormalVecters(LPDIRECT3DDEVICE9 D3DDevice, float LenFactor
 		INDEX_OBJ_NORMAL *NewIndices = new INDEX_OBJ_NORMAL[numIndices];
 		int k = 0;
 
-			for (int i = 0; i < numIndices; i++)
+			for (int j = 0; j < numIndices; j++)
 			{
-				NewIndices[i]._0 = k++;
-				NewIndices[i]._1 = k++;
+				NewIndices[j]._0 = k++;
+				NewIndices[j]._1 = k++;
 			}
 
 			int SizeOfIndices = sizeof(INDEX_OBJ_NORMAL)*numIndices;
-			if (FAILED(D3DDevice->CreateIndexBuffer(SizeOfIndices, 0, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &g_pModelIB, NULL)))
+			if (FAILED(pDevice->CreateIndexBuffer(SizeOfIndices, 0, D3DFMT_INDEX16, D3DPOOL_DEFAULT, &pModelIB, NULL)))
 				return E_FAIL;
 
 			VOID* pIndices;
-			if (FAILED(g_pModelIB->Lock(0, SizeOfIndices, (void **)&pIndices, 0)))
+			if (FAILED(pModelIB->Lock(0, SizeOfIndices, (void **)&pIndices, 0)))
 				return E_FAIL;
 			memcpy(pIndices, NewIndices, SizeOfIndices);
-			g_pModelIB->Unlock();
+			pModelIB->Unlock();
 	
 		delete[] NewIndices;
 
-		D3DDevice->SetStreamSource(0, g_pModelVB, 0, sizeof(VERTEX_OBJ_NORMAL));
-		D3DDevice->SetFVF(D3DFVF_VERTEX_OBJ_NORMAL);
-		D3DDevice->SetIndices(g_pModelIB);
+		pDevice->SetTexture(0, 0);
+		pDevice->SetStreamSource(0, pModelVB, 0, sizeof(VERTEX_OBJ_NORMAL));
+		pDevice->SetFVF(D3DFVF_VERTEX_OBJ_NORMAL);
+		pDevice->SetIndices(pModelIB);
 
-		D3DDevice->DrawIndexedPrimitive(D3DPT_LINELIST, 0, 0, numVertices, 0, numIndices);
+		pDevice->DrawIndexedPrimitive(D3DPT_LINELIST, 0, 0, numVertices, 0, numIndices);
 
 	}
 
 	return S_OK;	// 함수 종료!
 }
 
-void ModelOBJ::DrawModel(LPDIRECT3DDEVICE9 D3DDevice)
+void ModelOBJ::DrawModel(int InstanceID)
 {
+	pDevice->SetTransform(D3DTS_WORLD, &matModelWorld[InstanceID]);
+
 	// 모델의 각 메쉬를 그린다!
 	for (int i = 0; i < numGroups; i++)
 	{
-		UpdateVertices(D3DDevice, i);
+		UpdateVertices(i);
 
 		// 재질을 설정한다.
 		D3DMATERIAL9 mtrl;
@@ -921,34 +949,92 @@ void ModelOBJ::DrawModel(LPDIRECT3DDEVICE9 D3DDevice)
 		mtrl.Specular.b = ModelMaterials[ModelGroups[i].MaterialID].Color_Specular.z;
 		mtrl.Specular.a = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
 		mtrl.Power = 5.0f;
-		D3DDevice->SetMaterial( &mtrl );
+		pDevice->SetMaterial( &mtrl );
 
-		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, true );
+		pDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, true);
+		pDevice->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+		pDevice->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+		pDevice->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+		pDevice->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+		pDevice->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
 
-		D3DDevice->SetTextureStageState(0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1);
-		D3DDevice->SetTextureStageState(0,D3DTSS_ALPHAARG1,D3DTA_DIFFUSE);
-		
-		D3DDevice->SetRenderState(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);
-		D3DDevice->SetRenderState(D3DRS_DESTBLEND,D3DBLEND_INVSRCALPHA);
-		D3DDevice->SetRenderState(D3DRS_BLENDOP,D3DBLENDOP_ADD);
+		pDevice->SetTexture(0, ModelTextures[i]);
 
-		D3DDevice->SetTexture(0, ModelTextures[i]);
-		D3DDevice->SetStreamSource(0, g_pModelVB, 0, sizeof(VERTEX_OBJ));
-		D3DDevice->SetFVF(D3DFVF_VERTEX_OBJ);
-		D3DDevice->SetIndices(g_pModelIB);
+		pDevice->SetStreamSource(0, pModelVB, 0, sizeof(VERTEX_OBJ));
+		pDevice->SetFVF(D3DFVF_VERTEX_OBJ);
+		pDevice->SetIndices(pModelIB);
 
-		D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
+		pDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
 	}
 
 	return;
 }
 
-void ModelOBJ::DrawMesh_Opaque(LPDIRECT3DDEVICE9 D3DDevice)
+void ModelOBJ::DrawModel_HLSL(int InstanceID, D3DXMATRIX matView, D3DXMATRIX matProj)
 {
 	// 모델의 각 메쉬를 그린다!
 	for (int i = 0; i < numGroups; i++)
 	{
-		UpdateVertices(D3DDevice, i);
+		UpdateVertices(i);
+
+		pDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, true);
+		pDevice->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+		pDevice->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+		pDevice->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+
+		pDevice->SetStreamSource(0, pModelVB, 0, sizeof(VERTEX_OBJ));
+		pDevice->SetFVF(D3DFVF_VERTEX_OBJ);
+		pDevice->SetIndices(pModelIB);
+
+		pHLSL->SetTechnique("HLSLNoInstancing");
+
+		D3DXMATRIX matWVP = matModelWorld[InstanceID] * matView * matProj;
+		pHLSL->SetMatrix("matWVP", &matWVP);
+
+		UINT numPasses = 0;
+		pHLSL->Begin(&numPasses, NULL);
+
+		for (UINT j = 0; j < numPasses; ++j)
+		{
+			pHLSL->BeginPass(j);
+
+			if (ModelTextures[i])
+			{
+				pHLSL->SetBool("UseTexture", true);
+				pHLSL->SetTexture("DiffuseMap_Tex", ModelTextures[i]);
+			}
+			else
+			{		
+				pHLSL->SetBool("UseTexture", false);
+				float MtrlDiffuse[4];
+					MtrlDiffuse[0] = ModelMaterials[ModelGroups[i].MaterialID].Color_Diffuse.x;
+					MtrlDiffuse[1] = ModelMaterials[ModelGroups[i].MaterialID].Color_Diffuse.y;
+					MtrlDiffuse[2] = ModelMaterials[ModelGroups[i].MaterialID].Color_Diffuse.z;
+					MtrlDiffuse[3] = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
+				pHLSL->SetFloatArray("MtrlDiffuse", MtrlDiffuse, 4);
+			}
+
+			pHLSL->CommitChanges();
+
+			pDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
+
+			pHLSL->EndPass();
+		}
+
+		pHLSL->End();
+	}
+
+	return;
+}
+
+void ModelOBJ::DrawMesh_Opaque(int InstanceID)
+{
+	pDevice->SetTransform(D3DTS_WORLD, &matModelWorld[InstanceID]);
+
+	// 모델의 각 메쉬를 그린다!
+	for (int i = 0; i < numGroups; i++)
+	{
+		UpdateVertices(i);
 
 		if (ModelMaterials[ModelGroups[i].MaterialID].Transparency != 1)	// 알파값이 1이 아니면 종료
 			continue;
@@ -969,28 +1055,30 @@ void ModelOBJ::DrawMesh_Opaque(LPDIRECT3DDEVICE9 D3DDevice)
 			mtrl.Specular.b = ModelMaterials[ModelGroups[i].MaterialID].Color_Specular.z;
 			mtrl.Specular.a = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
 			mtrl.Power = 5.0f;
-		D3DDevice->SetMaterial( &mtrl );
+		pDevice->SetMaterial( &mtrl );
 
-		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, false );
+		pDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, false );
 
-		D3DDevice->SetTexture(0, ModelTextures[i]);
+		pDevice->SetTexture(0, ModelTextures[i]);
 
-		D3DDevice->SetStreamSource(0, g_pModelVB, 0, sizeof(VERTEX_OBJ));
-		D3DDevice->SetFVF(D3DFVF_VERTEX_OBJ);
-		D3DDevice->SetIndices(g_pModelIB);
+		pDevice->SetStreamSource(0, pModelVB, 0, sizeof(VERTEX_OBJ));
+		pDevice->SetFVF(D3DFVF_VERTEX_OBJ);
+		pDevice->SetIndices(pModelIB);
 
-		D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
+		pDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
 	}
 
 	return;
 }
 
-void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice)
+void ModelOBJ::DrawMesh_Transparent(int InstanceID)
 {
+	pDevice->SetTransform(D3DTS_WORLD, &matModelWorld[InstanceID]);
+
 	// 모델의 각 메쉬를 그린다!
 	for (int i = 0; i < numGroups; i++)
 	{
-		UpdateVertices(D3DDevice, i);
+		UpdateVertices(i);
 
 		if (ModelMaterials[ModelGroups[i].MaterialID].Transparency == 1)	// 알파값이 1이면 종료
 			continue;
@@ -1011,37 +1099,156 @@ void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice)
 			mtrl.Specular.b = ModelMaterials[ModelGroups[i].MaterialID].Color_Specular.z;
 			mtrl.Specular.a = ModelMaterials[ModelGroups[i].MaterialID].Transparency;
 			mtrl.Power = 5.0f;
-		D3DDevice->SetMaterial( &mtrl );
+		pDevice->SetMaterial( &mtrl );
 
-		D3DDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, true );
+		pDevice->SetRenderState( D3DRS_ALPHABLENDENABLE, true );
+		
+		pDevice->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+		pDevice->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
 
-		D3DDevice->SetRenderState(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);
-		D3DDevice->SetRenderState(D3DRS_DESTBLEND,D3DBLEND_INVSRCALPHA);
-		D3DDevice->SetRenderState(D3DRS_BLENDOP,D3DBLENDOP_ADD);
+		pDevice->SetRenderState(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);
+		pDevice->SetRenderState(D3DRS_DESTBLEND,D3DBLEND_INVSRCALPHA);
+		pDevice->SetRenderState(D3DRS_BLENDOP,D3DBLENDOP_ADD);
 
-		D3DDevice->SetTexture(0, ModelTextures[i]);
-		D3DDevice->SetStreamSource(0, g_pModelVB, 0, sizeof(VERTEX_OBJ));
-		D3DDevice->SetFVF(D3DFVF_VERTEX_OBJ);
-		D3DDevice->SetIndices(g_pModelIB);
+		pDevice->SetTexture(0, ModelTextures[i]);
+		pDevice->SetStreamSource(0, pModelVB, 0, sizeof(VERTEX_OBJ));
+		pDevice->SetFVF(D3DFVF_VERTEX_OBJ);
+		pDevice->SetIndices(pModelIB);
 
-		D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
+		pDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
 	}
 
 	return;
 }
 
-PickingRay GetPickingRay(LPDIRECT3DDEVICE9 D3DDevice, int MouseX, int MouseY,
-	int ScreenWidth, int ScreenHeight, D3DXMATRIX matView, D3DXMATRIX matProj)
+
+void ModelOBJ::SetHLSLTexture(int GroupID)
+{
+	if (ModelTextures[GroupID])
+	{
+		pHLSL->SetBool("UseTexture", true);
+		pHLSL->SetTexture("DiffuseMap_Tex", ModelTextures[GroupID]);
+	}
+	else
+	{
+		pHLSL->SetBool("UseTexture", false);
+		float MtrlDiffuse[4];
+		MtrlDiffuse[0] = ModelMaterials[ModelGroups[GroupID].MaterialID].Color_Diffuse.x;
+		MtrlDiffuse[1] = ModelMaterials[ModelGroups[GroupID].MaterialID].Color_Diffuse.y;
+		MtrlDiffuse[2] = ModelMaterials[ModelGroups[GroupID].MaterialID].Color_Diffuse.z;
+		MtrlDiffuse[3] = ModelMaterials[ModelGroups[GroupID].MaterialID].Transparency;
+		pHLSL->SetFloatArray("MtrlDiffuse", MtrlDiffuse, 4);
+	}
+
+	return;
+}
+
+void ModelOBJ::DrawMesh_HLSL_Opaque(int InstanceID, D3DXMATRIX matView, D3DXMATRIX matProj)
+{
+	pDevice->SetTransform(D3DTS_WORLD, &matModelWorld[InstanceID]);
+
+	// 모델의 각 메쉬를 그린다!
+	for (int i = 0; i < numGroups; i++)
+	{
+		UpdateVertices(i);
+
+		if (ModelMaterials[ModelGroups[i].MaterialID].Transparency != 1)	// 알파값이 1이 아니면 종료
+			continue;
+
+		pDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, false);
+
+		pDevice->SetStreamSource(0, pModelVB, 0, sizeof(VERTEX_OBJ));
+		pDevice->SetFVF(D3DFVF_VERTEX_OBJ);
+		pDevice->SetIndices(pModelIB);
+
+		pHLSL->SetTechnique("HLSLNoInstancing");
+
+		D3DXMATRIX matWVP = matModelWorld[InstanceID] * matView * matProj;
+		pHLSL->SetMatrix("matWVP", &matWVP);
+
+		UINT numPasses = 0;
+		pHLSL->Begin(&numPasses, NULL);
+
+		for (UINT j = 0; j < numPasses; ++j)
+		{
+			pHLSL->BeginPass(j);
+
+			SetHLSLTexture(i);
+
+			pHLSL->CommitChanges();
+
+			pDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
+
+			pHLSL->EndPass();
+		}
+
+		pHLSL->End();
+
+	}
+
+	return;
+}
+
+void ModelOBJ::DrawMesh_HLSL_Transparent(int InstanceID, D3DXMATRIX matView, D3DXMATRIX matProj)
+{
+	pDevice->SetTransform(D3DTS_WORLD, &matModelWorld[InstanceID]);
+
+	// 모델의 각 메쉬를 그린다!
+	for (int i = 0; i < numGroups; i++)
+	{
+		UpdateVertices(i);
+
+		if (ModelMaterials[ModelGroups[i].MaterialID].Transparency == 1)	// 알파값이 1이면 종료
+			continue;
+
+		pDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, true);
+		pDevice->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+		pDevice->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+		pDevice->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+
+		pDevice->SetStreamSource(0, pModelVB, 0, sizeof(VERTEX_OBJ));
+		pDevice->SetFVF(D3DFVF_VERTEX_OBJ);
+		pDevice->SetIndices(pModelIB);
+
+		pHLSL->SetTechnique("HLSLNoInstancing");
+
+		D3DXMATRIX matWVP = matModelWorld[InstanceID] * matView * matProj;
+		pHLSL->SetMatrix("matWVP", &matWVP);
+
+		UINT numPasses = 0;
+		pHLSL->Begin(&numPasses, NULL);
+
+		for (UINT j = 0; j < numPasses; ++j)
+		{
+			pHLSL->BeginPass(j);
+
+			SetHLSLTexture(i);
+
+			pHLSL->CommitChanges();
+
+			pDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, ModelGroups[i].numVertices, 0, ModelGroups[i].numIndices);
+
+			pHLSL->EndPass();
+		}
+
+		pHLSL->End();
+
+	}
+
+	return;
+}
+
+PickingRay ModelOBJ::GetPickingRay(int MouseX, int MouseY, int ScreenWidth, int ScreenHeight, D3DXMATRIX matView, D3DXMATRIX matProj)
 {
 	if (MouseX < 0 || MouseY < 0 || MouseX > ScreenWidth || MouseY > ScreenHeight)
-		return PickingRay(D3DXVECTOR3(0,0,0), D3DXVECTOR3(9999.0f,0,0));
+		return PickingRay(D3DXVECTOR3(0, 0, 0), D3DXVECTOR3(FLT_MAX, 0, 0));
 
 	D3DVIEWPORT9 vp;
 	D3DXMATRIX InvView;
 
 	D3DXVECTOR3 MouseViewPortXY, PickingRayDir, PickingRayPos;
 
-	D3DDevice->GetViewport(&vp);
+	pDevice->GetViewport(&vp);
 	D3DXMatrixInverse(&InvView, NULL, &matView);
 
 	MouseViewPortXY.x = (( (((MouseX-vp.X)*2.0f/vp.Width ) - 1.0f)) - matProj._31 ) / matProj._11;
@@ -1059,78 +1266,121 @@ PickingRay GetPickingRay(LPDIRECT3DDEVICE9 D3DDevice, int MouseX, int MouseY,
 	return PickingRay(PickingRayPos, PickingRayDir);
 }
 
-bool ModelOBJ::CheckMouseOver(LPDIRECT3DDEVICE9 D3DDevice, int MouseX, int MouseY,
-	int ScreenWidth, int ScreenHeight, D3DXMATRIX matView, D3DXMATRIX matProj)
+bool ModelOBJ::CheckMouseOverPerInstance(int InstanceID, int MouseX, int MouseY, int ScreenWidth, int ScreenHeight,
+	D3DXMATRIX matView, D3DXMATRIX matProj)
 {
-	PickingRay PR = GetPickingRay(D3DDevice, MouseX, MouseY, ScreenWidth, ScreenHeight, matView, matProj);
+	PickingRay PR = GetPickingRay(MouseX, MouseY, ScreenWidth, ScreenHeight, matView, matProj);
 
-	if (PR.Dir.x == 9999.0f)
+	if (PR.Dir.x == FLT_MAX)
 		return false;
 
-	for (int m = 0; m < numInstances; m++)
+	DistanceCmp[InstanceID]				= FLT_MAX;
+	MouseOverPerInstances[InstanceID]	= false;
+	PickedPosition[InstanceID]			= XMFLOAT3(0, 0, 0);
+
+	for (int j = 0; j < numGroups; j++)
 	{
-		MouseOverPerInstances[m] = false;
+		int numIndices = ModelGroups[j].numIndices;
+		int IndexStart = ModelGroups[j].numStartIndexID;
 
-		for (int j = 0; j < numGroups; j++)
+		for (int i = 0; i < numIndices; i++)
 		{
-			int numIndices = ModelGroups[j].numIndices;
-			int IndexStart = ModelGroups[j].numStartIndexID;
+			int numPrevVertices = 0;
 
-			for (int i = 0; i < numIndices; i++)
+			if ( j > 0 )
 			{
-				int numPrevVertices = 0;
-
-				if ( j > 0 )
+				for (int k = 0; k < j; k++)
 				{
-					for (int k = 0; k < j; k++)
-					{
-						numPrevVertices += ModelGroups[k].numVertices;
-					}
+					numPrevVertices += ModelGroups[k].numVertices;
 				}
+			}
 
-				int ID0 = Indices[IndexStart + i]._0 + numPrevVertices;
-				int ID1 = Indices[IndexStart + i]._1 + numPrevVertices;
-				int ID2 = Indices[IndexStart + i]._2 + numPrevVertices;
+			int ID0 = Indices[IndexStart + i]._0 + numPrevVertices;
+			int ID1 = Indices[IndexStart + i]._1 + numPrevVertices;
+			int ID2 = Indices[IndexStart + i]._2 + numPrevVertices;
 
-				D3DXVECTOR3 p0, p1, p2;
-				p0 = D3DXVECTOR3(Vertices[ID0].Position.x, Vertices[ID0].Position.y, Vertices[ID0].Position.z);
-				p1 = D3DXVECTOR3(Vertices[ID1].Position.x, Vertices[ID1].Position.y, Vertices[ID1].Position.z);
-				p2 = D3DXVECTOR3(Vertices[ID2].Position.x, Vertices[ID2].Position.y, Vertices[ID2].Position.z);
+			D3DXVECTOR3 p0, p1, p2;
+			p0 = D3DXVECTOR3(Vertices[ID0].Position.x, Vertices[ID0].Position.y, Vertices[ID0].Position.z);
+			p1 = D3DXVECTOR3(Vertices[ID1].Position.x, Vertices[ID1].Position.y, Vertices[ID1].Position.z);
+			p2 = D3DXVECTOR3(Vertices[ID2].Position.x, Vertices[ID2].Position.y, Vertices[ID2].Position.z);
 
-				// 인스턴스
-				D3DXMATRIX matInstTrans;
-				D3DXMATRIX matInstRotX;
-				D3DXMATRIX matInstRotY;
-				D3DXMATRIX matInstRotZ;
-				D3DXMATRIX matInstScal;
-				D3DXMATRIX matInstWorld;
+			// 인스턴스
+			D3DXMATRIX matInstTrans;
+			D3DXMATRIX matInstRotX;
+			D3DXMATRIX matInstRotY;
+			D3DXMATRIX matInstRotZ;
+			D3DXMATRIX matInstScal;
+			D3DXMATRIX matInstWorld;
 
-				D3DXMatrixTranslation(&matInstTrans,
-					ModelInstances[m].Translation.x, ModelInstances[m].Translation.y, ModelInstances[m].Translation.z);
+			D3DXMatrixTranslation(&matInstTrans,
+				ModelInstances[InstanceID].Translation.x, ModelInstances[InstanceID].Translation.y, ModelInstances[InstanceID].Translation.z);
 
-				D3DXMatrixRotationX(&matInstRotX, ModelInstances[m].Rotation.x);
-				D3DXMatrixRotationY(&matInstRotY, ModelInstances[m].Rotation.y);
-				D3DXMatrixRotationZ(&matInstRotZ, ModelInstances[m].Rotation.z);
+			D3DXMatrixRotationX(&matInstRotX, ModelInstances[InstanceID].Rotation.x);
+			D3DXMatrixRotationY(&matInstRotY, ModelInstances[InstanceID].Rotation.y);
+			D3DXMatrixRotationZ(&matInstRotZ, ModelInstances[InstanceID].Rotation.z);
 
-				D3DXMatrixScaling(&matInstScal,
-					ModelInstances[m].Scaling.x, ModelInstances[m].Scaling.y, ModelInstances[m].Scaling.z);
+			D3DXMatrixScaling(&matInstScal,
+				ModelInstances[InstanceID].Scaling.x, ModelInstances[InstanceID].Scaling.y, ModelInstances[InstanceID].Scaling.z);
 				
-				matInstWorld = matInstTrans * matInstRotX * matInstRotY * matInstRotZ * matInstScal;
+			matInstWorld = matInstRotX * matInstRotY * matInstRotZ * matInstScal * matInstTrans;
 
-				D3DXVec3TransformCoord(&p0, &p0, &matInstWorld);
-				D3DXVec3TransformCoord(&p1, &p1, &matInstWorld);
-				D3DXVec3TransformCoord(&p2, &p2, &matInstWorld);
+			D3DXVec3TransformCoord(&p0, &p0, &matInstWorld);
+			D3DXVec3TransformCoord(&p1, &p1, &matInstWorld);
+			D3DXVec3TransformCoord(&p2, &p2, &matInstWorld);
 
-				float pU, pV, pDist;
+			float pU, pV, pDist;
 
-				if (D3DXIntersectTri(&p0, &p1, &p2, &PR.Pos, &PR.Dir, &pU, &pV, &pDist))
+			if (D3DXIntersectTri(&p0, &p1, &p2, &PR.Pos, &PR.Dir, &pU, &pV, &pDist))
+			{
+				if (pDist < DistanceCmp[InstanceID])
 				{
-					MouseOverPerInstances[m] = true;
-					return true;
+					DistanceCmp[InstanceID] = pDist;
+					D3DXVECTOR3 TempPosition = p0 + (p1*pU - p0*pU) + (p2*pV - p0*pV);
+					D3DXVec3TransformCoord(&TempPosition, &TempPosition, &matInstWorld);
+
+					PickedPosition[InstanceID].x = TempPosition.x;
+					PickedPosition[InstanceID].y = TempPosition.y;
+					PickedPosition[InstanceID].z = TempPosition.z;
 				}
+
+				MouseOverPerInstances[InstanceID] = true;
 			}
 		}
 	}
 
+	switch (MouseOverPerInstances[InstanceID])
+	{
+		case true:
+			return true;
+		case false:
+			return false;
+	}
+
 	return false;
+}
+
+void ModelOBJ::CheckMouseOverFinal()
+{
+	float	ClosestDistance		= FLT_MAX;
+	int		ClosestInstanceID	= -1;
+
+	for (int i = 0; i < numInstances; i++)
+	{
+		if (MouseOverPerInstances[i] == true)
+		{
+			if ( DistanceCmp[i] < ClosestDistance )
+			{
+				ClosestDistance = DistanceCmp[i];
+				ClosestInstanceID = i;
+			}
+		}
+	}
+
+	for (int i = 0; i < numInstances; i++)
+	{
+		MouseOverPerInstances[i] = false;
+	}
+
+	if (ClosestInstanceID != -1)
+		MouseOverPerInstances[ClosestInstanceID] = true;
 }

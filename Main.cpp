@@ -3,59 +3,61 @@
 #include "DirectInput.h"
 #include "Camera.h"
 #include "Font.h"
+#include "Grid.h"
+#include <crtdbg.h>
+
+#ifdef _DEBUG	// 메모리 누수 검사
+#define new new( _CLIENT_BLOCK, __FILE, __LINE__)
+#endif
 
 
 // 상수 선언
+const int				ScreenWidth		= 800;
+const int				ScreenHeight	= 600;
+const char				WindowName[]	= "D3DGAME";
+const char				WindowTitle[]	= "GAME";
 const int				MAX_MODEL_NUM	= 10;
 
 
 // D3D 변수 선언
 LPDIRECT3D9             g_pD3D			= NULL;
 LPDIRECT3DDEVICE9       g_pd3dDevice	= NULL;
-
-LPDIRECT3DVERTEXBUFFER9	g_pModelVB		= NULL;
-LPDIRECT3DINDEXBUFFER9	g_pModelIB		= NULL;
+LPD3DXEFFECT			g_pHLSL			= NULL;
 
 DirectCamera9			g_Camera;				// Direct Camera
 DirectFont9				g_Font;					// Direct Font
+DirectGrid9				g_Grid;					// Direct Grid
 
 DirectInput*			g_pDI			= NULL;	// Direct Input
 D3DXVECTOR3				MouseState;				// Direct Input - 마우스 이동, 휠
 POINT					MouseScreen;			// Direct Input - 마우스 좌표
 int						MouseButtonState = 0;	// Direct Input - 마우스 버튼 눌림
 
-D3DLIGHT9				Light_Directional;
-
 D3DXMATRIXA16			matModelWorld;
 D3DXMATRIXA16			matView, matProj;
 
 
 // 기타 변수 선언
-ModelOBJ				MyOBJModel[MAX_MODEL_NUM];
 DWORD					SecondTimer		= 0;
 int						FPS				= 0;
-const int				ScreenWidth		= 800;
-const int				ScreenHeight	= 600;
-bool					bBoundingBoxed	= false;
-bool					bNormalVector	= false;
+int						FPS_Shown		= 0;
 
-float					Debug0 = 0.0f;
-float					Debug1 = 0.0f;
+ModelOBJ				MyOBJModel[MAX_MODEL_NUM];
+bool					bDrawBoundingBoxes	= false;
+bool					bDrawNormalVectors	= false;
+bool					bWireFrame			= false;
 
 
 // 함수 원형 선언
 VOID Cleanup();
-HRESULT InitD3D(HWND hWnd, HINSTANCE hInst);
+HRESULT InitD3D( HWND hWnd, HINSTANCE hInst );
 HRESULT InitModel();
-VOID SetupCameraMatrices();
-VOID SetupModelMatrix(float Tx, float Ty, float Tz, float Rx, float Ry, float Rz, float Sx, float Sy, float Sz);
-VOID SetupLights();
 VOID Render();
 LRESULT WINAPI MsgProc( HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam );
 INT WINAPI WinMain( HINSTANCE hInst, HINSTANCE, LPSTR, INT );
 
 
-HRESULT InitD3D(HWND hWnd, HINSTANCE hInst)
+HRESULT InitD3D( HWND hWnd, HINSTANCE hInst )
 {
 	if( NULL == ( g_pD3D = Direct3DCreate9( D3D_SDK_VERSION ) ) )
 		return E_FAIL;
@@ -67,24 +69,31 @@ HRESULT InitD3D(HWND hWnd, HINSTANCE hInst)
 	d3dpp.EnableAutoDepthStencil = TRUE;		// 자동 깊이 공판(Depth Stencil)을 사용한다. (그래야 컴퓨터가 알아서 멀리 있는 걸 먼저 그려줌★)
 	d3dpp.AutoDepthStencilFormat = D3DFMT_D16;	// 깊이 공판 형식: D3DFMT_D16
 	d3dpp.BackBufferFormat = D3DFMT_UNKNOWN;	// 후면 버퍼 형식: D3DFMT_UNKNOWN는 현재 바탕화면 포맷과 일치
-	//d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;	// 이게 있으면 60FPS를 넘어서 그려진다
 
 	if( FAILED( g_pD3D->CreateDevice( D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &d3dpp, &g_pd3dDevice ) ) )
 		return E_FAIL;
 
 	g_pd3dDevice->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
 	g_pd3dDevice->SetRenderState( D3DRS_ZENABLE, TRUE );
-	//g_pd3dDevice->SetRenderState( D3DRS_FILLMODE, D3DFILL_WIREFRAME );
+
+	// 셰이더 컴파일
+	D3DXCreateEffectFromFile(g_pd3dDevice, "HLSLMain.fx", NULL, NULL, NULL, NULL, &g_pHLSL, NULL);
+	if (!g_pHLSL)
+		return E_FAIL;
 
 	InitModel();
+
+	g_Grid.SetDevice(g_pd3dDevice);
+	g_Grid.AddGridXZ(1, 100, 100);
+	g_Grid.CreateGrid();
 
 	g_pDI = DirectInput::GetInstance();		// Direct Input 초기화
 	g_pDI->InitDirectInput(hInst, hWnd);
 	g_pDI->CreateKeyboardDevice(DISCL_BACKGROUND|DISCL_NONEXCLUSIVE);
 	g_pDI->CreateMouseDevice(DISCL_BACKGROUND|DISCL_NONEXCLUSIVE);
 
-	//g_Camera.SetCamera_FreeLook(0.0f, 2.0f, 0.0f);
-	g_Camera.SetCamera_ThirdPerson(20.0f, 20.0f, 5.0f);
+	g_Camera.SetDevice(g_pd3dDevice);
+	g_Camera.SetCamera_FreeLook(0.0f, 0.0f, 0.0f);
 
 	g_Font.CreateFontA(g_pd3dDevice, "Arial", 20, false, ScreenWidth, ScreenHeight);
 
@@ -93,65 +102,10 @@ HRESULT InitD3D(HWND hWnd, HINSTANCE hInst)
 
 HRESULT InitModel()
 {
-	MyOBJModel[0].CreateModel(g_pd3dDevice, "Model\\", "TestTeapot");
-	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
-	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 50.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
+	MyOBJModel[0].CreateModel(g_pd3dDevice, "Model\\", "TestGeos", g_pHLSL);
+	MyOBJModel[0].AddInstance( XMFLOAT3(10.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, D3DX_PI/2, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
 
 	return S_OK;
-}
-
-VOID SetupCameraMatrices()
-{
-	// 뷰 행렬(카메라 설정)
-	//g_Camera.UseCamera_FreeLook( g_pd3dDevice, &matView );
-	g_Camera.UseCamera_ThirdPerson( g_pd3dDevice, &matView, D3DXVECTOR3(5.0f, 20.0f, 5.0f));
-	
-	// 투영 행렬(원근감 설정)
-	D3DXMatrixPerspectiveFovLH( &matProj, D3DX_PI/4, 1.0f, 1.0f, 1000.0f );
-	g_pd3dDevice->SetTransform( D3DTS_PROJECTION, &matProj );
-}
-
-VOID SetupModelMatrix(XMFLOAT3 Translation, XMFLOAT3 Rotation, XMFLOAT3 Scaling)
-{
-	// 월드 행렬(위치, 회전, 크기 설정)
-	D3DXMatrixIdentity( &matModelWorld );
-
-		D3DXMATRIXA16 matTrans;
-		D3DXMATRIXA16 matRotX;
-		D3DXMATRIXA16 matRotY;
-		D3DXMATRIXA16 matRotZ;
-		D3DXMATRIXA16 matSize;
-
-		D3DXMatrixTranslation(&matTrans, Translation.x, Translation.y, Translation.z);
-		D3DXMatrixRotationX(&matRotX, Rotation.x);
-		D3DXMatrixRotationY(&matRotY, Rotation.y);				// Y축을 기준으로 회전 (즉, X&Z가 회전함)
-		D3DXMatrixRotationZ(&matRotZ, Rotation.z);
-		D3DXMatrixScaling(&matSize, Scaling.x, Scaling.y, Scaling.z);
-
-	matModelWorld = matModelWorld * matTrans * matRotX * matRotY * matRotZ * matSize;
-	g_pd3dDevice->SetTransform(D3DTS_WORLD, &matModelWorld);
-}
-
-VOID SetupLights()
-{
-	// 하얀색의 방향성 조명(Directional Light)을 설정한다.
-	D3DXVECTOR3 vecDir;
-	ZeroMemory( &Light_Directional, sizeof( D3DLIGHT9 ) );
-	Light_Directional.Type = D3DLIGHT_DIRECTIONAL;
-	Light_Directional.Diffuse.r = 1.0f;
-	Light_Directional.Diffuse.g = 1.0f;
-	Light_Directional.Diffuse.b = 1.0f;
-	vecDir = D3DXVECTOR3( -1.0f, -1.0f, -1.0f );
-	D3DXVec3Normalize( ( D3DXVECTOR3* )&Light_Directional.Direction, &vecDir );
-
-	g_pd3dDevice->SetLight( 0, &Light_Directional );
-	g_pd3dDevice->LightEnable( 0, TRUE );
-
-	// 환경광을 사용한다.
-	g_pd3dDevice->SetRenderState( D3DRS_AMBIENT, 0xffA0A0A0 );
-
-	// 조명 기능을 켠다.
-	g_pd3dDevice->SetRenderState( D3DRS_LIGHTING, TRUE );
 }
 
 void DetectInput(HWND hWnd)
@@ -177,25 +131,21 @@ void DetectInput(HWND hWnd)
 
 		if (MouseState.x < 0)	// 마우스 왼쪽으로 이동
 		{
-			if (MouseButtonState == 2)
 			g_Camera.RotateCamera_LeftRight(MouseState.x, 250.0f);
 		}
 
 		if (MouseState.x > 0)	// 마우스 오른쪽으로 이동
 		{
-			if (MouseButtonState == 2)
 			g_Camera.RotateCamera_LeftRight(MouseState.x, 250.0f);
 		}
 
 		if (MouseState.y < 0)	// 마우스 위로 이동
 		{
-			if (MouseButtonState == 2)
 			g_Camera.RotateCamera_UpDown(MouseState.y, 250.0f);
 		}
 
 		if (MouseState.y > 0)	// 마우스 아래로 이동
 		{
-			if (MouseButtonState == 2)
 			g_Camera.RotateCamera_UpDown(MouseState.y, 250.0f);
 		}
 
@@ -221,22 +171,43 @@ void DetectInput(HWND hWnd)
 
 		if(g_pDI->DIKeyboardHandler(DIK_B))	// B: 바운딩 박스 그리기
 		{
-			bBoundingBoxed = !bBoundingBoxed;
-			Sleep(120);
+			bDrawBoundingBoxes = !bDrawBoundingBoxes;
+			Sleep(140);
 		}
 
 		if(g_pDI->DIKeyboardHandler(DIK_N))	// N: 법선 벡터 그리기
 		{
-			bNormalVector = !bNormalVector;
-			Sleep(120);
+			bDrawNormalVectors = !bDrawNormalVectors;
+			Sleep(140);
+		}
+
+		if(g_pDI->DIKeyboardHandler(DIK_R))	// R: 그리기 모드
+		{
+			bWireFrame = !bWireFrame;
+			Sleep(140);
+
+			if (bWireFrame == true)
+			{
+				g_pd3dDevice->SetRenderState( D3DRS_FILLMODE, D3DFILL_WIREFRAME );
+			}
+			else
+			{
+				g_pd3dDevice->SetRenderState( D3DRS_FILLMODE, D3DFILL_SOLID );
+			}
+		}
+
+		if(g_pDI->DIKeyboardHandler(DIK_SPACE))	// Spacebar: 카메라 위치, 방향 초기화
+		{
+			g_Camera.SetCamera_FreeLook(0.0f, 0.0f, 0.0f);
+			g_Camera.CamYaw = 0;
+			g_Camera.CamRoll = 0;
+			Sleep(140);
 		}
 
 		if(g_pDI->DIKeyboardHandler(DIK_ESCAPE))	// ESC: 종료
 			DestroyWindow(hWnd);
 	}
 }
-
-
 
 VOID Render()
 {
@@ -245,45 +216,57 @@ VOID Render()
 
 	if( SUCCEEDED( g_pd3dDevice->BeginScene() ) )
 	{
-		SetupCameraMatrices();
-		SetupLights();
+		// 카메라 설정
+		g_Camera.UseCamera_FreeLook();
+		g_Camera.SetProjection(1000.0f);
+
+		g_Grid.DrawGrid();
+
+		// 조명 기능을 켠다. (HLSL을 쓰지 않을 때는 반드시 켜야만 알파 블렌딩이 된다!★★)
+		//g_pd3dDevice->SetRenderState(D3DRS_LIGHTING, true);
 
 		for (int i = 0; i < MyOBJModel[0].numInstances; i++)
 		{
-			//MyOBJModel[0].ModelInstances[i].Rotation.x += 0.01f;
-			//MyOBJModel[0].ModelInstances[i].Rotation.y += 0.01f;
-			SetupModelMatrix(MyOBJModel[0].ModelInstances[i].Translation,
-				MyOBJModel[0].ModelInstances[i].Rotation,
-				MyOBJModel[0].ModelInstances[i].Scaling);
-			if (bBoundingBoxed == true)
-				MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
-			
-			MyOBJModel[0].CheckMouseOver(g_pd3dDevice, MouseScreen.x, MouseScreen.y, ScreenWidth, ScreenHeight, matView, matProj);
-			MyOBJModel[0].DrawMesh_Opaque(g_pd3dDevice);
+			//MyOBJModel[0].DrawModel(i);
+			//MyOBJModel[0].DrawModel_HLSL(i, g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
+			//MyOBJModel[0].DrawMesh_Opaque(i);
+			MyOBJModel[0].DrawMesh_HLSL_Opaque(i, g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
 		}
 
 		for (int i = 0; i < MyOBJModel[0].numInstances; i++)
 		{
-			//MyOBJModel[0].ModelInstances[i].Rotation.x += 0.01f;
-			//MyOBJModel[0].ModelInstances[i].Rotation.y += 0.01f;
-			SetupModelMatrix(MyOBJModel[0].ModelInstances[i].Translation,
-				MyOBJModel[0].ModelInstances[i].Rotation,
-				MyOBJModel[0].ModelInstances[i].Scaling);
-			if (bBoundingBoxed == true)
-				MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
-			MyOBJModel[0].CheckMouseOver(g_pd3dDevice, MouseScreen.x, MouseScreen.y, ScreenWidth, ScreenHeight, matView, matProj);
-			MyOBJModel[0].DrawMesh_Transparent(g_pd3dDevice);
+			//MyOBJModel[0].DrawMesh_Transparent(i);
+			MyOBJModel[0].DrawMesh_HLSL_Transparent(i, g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
 
-			if (bNormalVector == true)
-				MyOBJModel[0].DrawNormalVecters(g_pd3dDevice, 4.0f);
+			if (bDrawBoundingBoxes == true)
+				MyOBJModel[0].DrawBoundingBoxes();
+			if (bDrawNormalVectors == true)
+				MyOBJModel[0].DrawNormalVecters(1.0f);
+
+		}
+
+		if (g_pDI->OnMouseButtonDown(0) == true)
+		{
+			for (int i = 0; i < MyOBJModel[0].numInstances; i++)
+			{
+				MyOBJModel[0].CheckMouseOverPerInstance(i, MouseScreen.x, MouseScreen.y, ScreenWidth, ScreenHeight,
+					g_Camera.GetViewMatrix(), g_Camera.GetProjectionMatrix());
+			}
+			MyOBJModel[0].CheckMouseOverFinal();
 		}
 
 		g_Font.SetFontColor(0xFFFFFFFF);
-		g_Font.DrawTextA(0, 0, MouseScreen.x);
-		g_Font.DrawTextA(0, 20, MouseScreen.y);
+		g_Font.DrawTextA(0, 0, "FPS: ");
+		g_Font.DrawTextA(40, 0, FPS_Shown);
+		g_Font.DrawTextA(0, 20, MyOBJModel[0].MouseOverPerInstances[0]);
+		g_Font.DrawTextA(0, 40, MyOBJModel[0].PickedPosition[0].x);
+		g_Font.DrawTextA(0, 60, MyOBJModel[0].PickedPosition[0].y);
+		g_Font.DrawTextA(0, 80, MyOBJModel[0].PickedPosition[0].z);
 
-		g_Font.DrawTextA(0, 40, MyOBJModel[0].MouseOverPerInstances[0]);
-		g_Font.DrawTextA(0, 60, MyOBJModel[0].MouseOverPerInstances[1]);
+		g_Font.DrawTextA(100, 20, MyOBJModel[0].MouseOverPerInstances[1]);
+		g_Font.DrawTextA(100, 40, MyOBJModel[0].PickedPosition[1].x);
+		g_Font.DrawTextA(100, 60, MyOBJModel[0].PickedPosition[1].y);
+		g_Font.DrawTextA(100, 80, MyOBJModel[0].PickedPosition[1].z);
 
 		g_pd3dDevice->EndScene();
 	}
@@ -307,13 +290,17 @@ LRESULT WINAPI MsgProc( HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam )
 
 INT WINAPI WinMain( HINSTANCE hInst, HINSTANCE, LPSTR, INT )
 {
-	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, MsgProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "D3DGAME", NULL };
+	#ifdef _DEBUG	// 메모리 누수 검사
+		_CrtSetDbgFlag( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+	#endif
+
+	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, MsgProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, WindowName, NULL };
 	RegisterClassEx( &wc );
 
 	RECT WndRect = {0, 30, ScreenWidth, 30 + ScreenHeight};
 	AdjustWindowRect(&WndRect, WS_OVERLAPPEDWINDOW, false);
 
-	HWND hWnd = CreateWindow( "D3DGAME", "GAME", WS_OVERLAPPEDWINDOW,
+	HWND hWnd = CreateWindow( WindowName, WindowTitle, WS_OVERLAPPEDWINDOW,
 		WndRect.left, WndRect.top, WndRect.right-WndRect.left, WndRect.bottom-WndRect.top, NULL, NULL, wc.hInstance, NULL );
 
 	if( FAILED( InitD3D( hWnd, hInst ) ) )
@@ -340,18 +327,14 @@ INT WINAPI WinMain( HINSTANCE hInst, HINSTANCE, LPSTR, INT )
 			if (GetTickCount() >= SecondTimer + 1000)	// 초시계
 			{
 				SecondTimer = GetTickCount();
-
-				char temp[20];
-				_itoa_s(FPS, temp, 10);
-				SetWindowText(hWnd, temp);
-
+				FPS_Shown = FPS;
 				FPS = 0;
 			}
 		}
 	}
 
 	Cleanup();
-	UnregisterClass( "D3DGAME", wc.hInstance );
+	UnregisterClass( WindowName, wc.hInstance );
 	return 0;
 }
 
@@ -360,8 +343,6 @@ VOID Cleanup()
 	g_pDI->ShutdownDirectInput();
 	g_pDI->DeleteInstance();
 
-	SAFE_RELEASE(g_pModelVB);
-	SAFE_RELEASE(g_pModelIB);
 	SAFE_RELEASE(g_pd3dDevice);
 	SAFE_RELEASE(g_pD3D);
 }

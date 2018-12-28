@@ -7,6 +7,10 @@ void DirectInput::InitDirectInput(HINSTANCE inst, HWND hwnd)
 	m_hInstance = inst;
 	m_hwnd = hwnd;
 
+	memset(MouseButtonDown, false, sizeof(MouseButtonDown));
+	memset(MouseButtonUp, false, sizeof(MouseButtonUp));
+	memset(MouseButtonIdle, true, sizeof(MouseButtonIdle));
+
 	if(FAILED(DirectInput8Create(m_hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8, (void **) &m_diObj, NULL)))
 		return;
 }
@@ -98,7 +102,52 @@ D3DXVECTOR3 DirectInput::DIMouseHandler(void)
 bool DirectInput::DIMouseButtonHandler(int button)
 {
 	if(m_diMouseState.rgbButtons[button] & 0x80)
+	{
+		if ( (MouseButtonDown[button] == false) && (MouseButtonIdle[button] == true) )
+		{
+			MouseButtonUp[button] = false;
+			MouseButtonDown[button] = true;
+		}
 		return true;
+	}
+	else if(!m_diMouseState.rgbButtons[button])
+	{
+		if ( (MouseButtonDown[button] == false) && (MouseButtonIdle[button] == false) )
+		{
+			MouseButtonUp[button] = true;
+			MouseButtonIdle[button] = true;
+			MouseButtonDown[button] = false;
+		}
+		else if ( (MouseButtonDown[button] == true) && (MouseButtonIdle[button] == true) )
+		{
+			MouseButtonUp[button] = true;
+			MouseButtonDown[button] = false;
+		}
+	}
+
+	return false;
+}
+
+bool DirectInput::OnMouseButtonDown(int button)
+{
+	if (MouseButtonDown[button] == true)
+	{
+		MouseButtonDown[button] = false;
+		MouseButtonIdle[button] = false;
+		return true;
+	}
+
+	return false;
+}
+
+bool DirectInput::OnMouseButtonUp(int button)
+{
+	if (MouseButtonUp[button] == true)
+	{
+		MouseButtonUp[button] = false;
+		MouseButtonIdle[button] = true;
+		return true;
+	}
 
 	return false;
 }
