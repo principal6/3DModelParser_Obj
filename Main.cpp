@@ -2,6 +2,7 @@
 #include "ModelOBJ.h"
 #include "DirectInput.h"
 #include "Camera.h"
+#include "Font.h"
 
 
 // 상수 선언
@@ -16,6 +17,7 @@ LPDIRECT3DVERTEXBUFFER9	g_pModelVB		= NULL;
 LPDIRECT3DINDEXBUFFER9	g_pModelIB		= NULL;
 
 DirectCamera9			g_Camera;				// Direct Camera
+DirectFont9				g_Font;					// Direct Font
 
 DirectInput*			g_pDI			= NULL;	// Direct Input
 D3DXVECTOR3				MouseState;				// Direct Input - 마우스 이동, 휠
@@ -32,9 +34,10 @@ D3DXMATRIXA16			matView, matProj;
 ModelOBJ				MyOBJModel[MAX_MODEL_NUM];
 DWORD					SecondTimer		= 0;
 int						FPS				= 0;
-const int				ScreenWidth		= 1024;
-const int				ScreenHeight	= 768;
+const int				ScreenWidth		= 800;
+const int				ScreenHeight	= 600;
 bool					bBoundingBoxed	= false;
+bool					bNormalVector	= false;
 
 
 // 함수 원형 선언
@@ -79,14 +82,16 @@ HRESULT InitD3D(HWND hWnd, HINSTANCE hInst)
 
 	g_Camera.SetCamera_FreeLook(0.0f, 2.0f, 0.0f);
 
+	g_Font.CreateFontA(g_pd3dDevice, "Arial", 20, false, ScreenWidth, ScreenHeight);
+
 	return S_OK;
 }
 
 HRESULT InitModel()
 {
-	MyOBJModel[0].CreateModel(g_pd3dDevice, "Model\\", "TestMap");
+	MyOBJModel[0].CreateModel(g_pd3dDevice, "Model\\", "TestGeos");
 	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(1.0f, 1.0f, 1.0f) );
-	MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 50.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
+	//MyOBJModel[0].AddInstance( XMFLOAT3(0.0f, 0.0f, 50.0f), XMFLOAT3(0.0f, 0.0f, 0.0f), XMFLOAT3(0.5f, 0.5f, 0.5f) );
 
 	return S_OK;
 }
@@ -131,7 +136,7 @@ VOID SetupLights()
 	Light_Directional.Diffuse.r = 1.0f;
 	Light_Directional.Diffuse.g = 1.0f;
 	Light_Directional.Diffuse.b = 1.0f;
-	vecDir = D3DXVECTOR3( 0.0f, -1.0f, 0.0f );
+	vecDir = D3DXVECTOR3( -1.0f, -1.0f, -1.0f );
 	D3DXVec3Normalize( ( D3DXVECTOR3* )&Light_Directional.Direction, &vecDir );
 
 	g_pd3dDevice->SetLight( 0, &Light_Directional );
@@ -210,6 +215,11 @@ void DetectInput(HWND hWnd)
 			bBoundingBoxed = !bBoundingBoxed;
 		}
 
+		if(g_pDI->DIKeyboardHandler(DIK_N))	// N: 법선 벡터 그리기
+		{
+			bNormalVector = !bNormalVector;
+		}
+
 		if(g_pDI->DIKeyboardHandler(DIK_ESCAPE))	// ESC: 종료
 			DestroyWindow(hWnd);
 	}
@@ -247,7 +257,12 @@ VOID Render()
 			if (bBoundingBoxed == true)
 				MyOBJModel[0].DrawBoundingBoxes(g_pd3dDevice);
 			MyOBJModel[0].DrawMesh_Transparent(g_pd3dDevice);
+			MyOBJModel[0].DrawNormalVecters(g_pd3dDevice, 10.0f);
 		}
+
+		g_Font.SetFontColor(0xFFFFFFFF);
+		g_Font.DrawTextA(0, 0, MouseScreen.x);
+		g_Font.DrawTextA(0, 20, MouseScreen.y);
 
 		g_pd3dDevice->EndScene();
 	}
@@ -274,7 +289,11 @@ INT WINAPI WinMain( HINSTANCE hInst, HINSTANCE, LPSTR, INT )
 	WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, MsgProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "D3DGAME", NULL };
 	RegisterClassEx( &wc );
 
-	HWND hWnd = CreateWindow( "D3DGAME", "GAME", WS_OVERLAPPEDWINDOW, 0, 0, ScreenWidth, ScreenHeight, NULL, NULL, wc.hInstance, NULL );
+	RECT WndRect = {0, 30, ScreenWidth, 30 + ScreenHeight};
+	AdjustWindowRect(&WndRect, WS_OVERLAPPEDWINDOW, false);
+
+	HWND hWnd = CreateWindow( "D3DGAME", "GAME", WS_OVERLAPPEDWINDOW,
+		WndRect.left, WndRect.top, WndRect.right-WndRect.left, WndRect.bottom-WndRect.top, NULL, NULL, wc.hInstance, NULL );
 
 	if( FAILED( InitD3D( hWnd, hInst ) ) )
 		return 0;
@@ -317,11 +336,6 @@ INT WINAPI WinMain( HINSTANCE hInst, HINSTANCE, LPSTR, INT )
 
 VOID Cleanup()
 {
-	for (int i = 0; i < MAX_MODEL_NUM; i++)
-	{
-		MyOBJModel[i].Destroy();
-	}
-
 	g_pDI->ShutdownDirectInput();
 	g_pDI->DeleteInstance();
 

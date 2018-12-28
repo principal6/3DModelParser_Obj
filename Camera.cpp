@@ -1,5 +1,7 @@
 #include "Camera.h"
 
+float			CamDefaultTargetY;
+
 float			CamMoveLR;
 float			CamMoveBF;
 float			CamPitch;
@@ -15,11 +17,8 @@ D3DXVECTOR3		CamRight;
 D3DXVECTOR3		CamDefaultRight;
 
 
-VOID DirectCamera9::SetCamera_FirstPerson(float CameraY)
+DirectCamera9::DirectCamera9()
 {
-	CamDefaultForward	= D3DXVECTOR3(1.0f, CameraY, 0.0f);
-	CamDefaultRight		= D3DXVECTOR3(0.0f, CameraY, 1.0f);
-
 	CamMoveLR = 0.0f;
 	CamMoveBF = 0.0f;
 	CamYaw = 0.0f;
@@ -27,6 +26,14 @@ VOID DirectCamera9::SetCamera_FirstPerson(float CameraY)
 	CamRoll = 0.0f;
 	CamRotLR = 0.0f;
 	CamRotUD = 0.0f;
+
+	CamDefaultTargetY = 0.0f;
+}
+
+VOID DirectCamera9::SetCamera_FirstPerson(float CameraY)
+{
+	CamDefaultForward	= D3DXVECTOR3(1.0f, CameraY, 0.0f);
+	CamDefaultRight		= D3DXVECTOR3(0.0f, CameraY, 1.0f);
 }
 
 VOID DirectCamera9::SetCamera_FreeLook(float CameraX, float CameraY, float CameraZ)
@@ -34,28 +41,13 @@ VOID DirectCamera9::SetCamera_FreeLook(float CameraX, float CameraY, float Camer
 	CamPosition			= D3DXVECTOR3(CameraX, CameraY, CameraZ);
 	CamDefaultForward	= D3DXVECTOR3(1.0f, 0.0f, 0.0f);
 	CamDefaultRight		= D3DXVECTOR3(0.0f, 0.0f, 1.0f);
-
-	CamMoveLR = 0.0f;
-	CamMoveBF = 0.0f;
-	CamYaw = 0.0f;
-	CamPitch = 0.0f;
-	CamRoll = 0.0f;
-	CamRotLR = 0.0f;
-	CamRotUD = 0.0f;
 }
 
-VOID DirectCamera9::SetCamera_ThirdPerson(float DistanceHigh, float DistanceFar)
+VOID DirectCamera9::SetCamera_ThirdPerson(float DistanceHigh, float DistanceFar, float TargetY)
 {
 	CamDefaultPosition	= D3DXVECTOR3(-DistanceFar, DistanceHigh, 0.0f);
 	CamUp				= D3DXVECTOR3(0.0f, 1.0f, 0.0f);
-
-	CamMoveLR = 0.0f;
-	CamMoveBF = 0.0f;
-	CamYaw = 0.0f;
-	CamPitch = 0.0f;
-	CamRoll = 0.0f;
-	CamRotLR = 0.0f;
-	CamRotUD = 0.0f;
+	CamDefaultTargetY	= TargetY;
 }
 
 VOID DirectCamera9::UseCamera_FirstPerson(LPDIRECT3DDEVICE9 D3DDevice, D3DXMATRIXA16* matView)
@@ -117,6 +109,7 @@ VOID DirectCamera9::UseCamera_ThirdPerson(LPDIRECT3DDEVICE9 D3DDevice, D3DXMATRI
 	D3DXMATRIX matCameraRotation;
 
 	CamTarget = SpritePosition;
+	CamTarget.y += CamDefaultTargetY;
 
 	D3DXMatrixRotationYawPitchRoll(&matCameraRotation, CamYaw, 0.0f, CamRoll);
 	D3DXVec3TransformCoord(&CamPosition, &CamDefaultPosition, &matCameraRotation);

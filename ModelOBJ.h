@@ -30,8 +30,15 @@ struct VERTEX_OBJ_BB
 	XMFLOAT3 Position;
 };
 
+struct VERTEX_OBJ_NORMAL
+{
+	XMFLOAT3 Normal;
+};
+
+
 #define D3DFVF_VERTEX_OBJ (D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1)
 #define D3DFVF_VERTEX_OBJ_BB (D3DFVF_XYZ)
+#define D3DFVF_VERTEX_OBJ_NORMAL (D3DFVF_XYZ)
 
 struct INDEX_OBJ
 {
@@ -39,6 +46,11 @@ struct INDEX_OBJ
 };
 
 struct INDEX_OBJ_BB
+{
+	WORD _0, _1;
+};
+
+struct INDEX_OBJ_NORMAL
 {
 	WORD _0, _1;
 };
@@ -95,19 +107,22 @@ struct BoundingBox_OBJ
 // OBJ ¸ðµ¨ Å¬·¡½º
 class ModelOBJ {
 public:
+	ModelOBJ();
+	~ModelOBJ();
+
 	int						numGroups;
 	ANYNAME					MtlFileName;
 
 	int						numMaterials;
 
-	int			numTPositions;
-	XMFLOAT3	TPositions[MAX_OBJ_POSITIONS];
-	int			numTNormals;
-	XMFLOAT3	TNormals[MAX_OBJ_NORMALS];
-	int			numTTextures;
-	XMFLOAT2	TTextures[MAX_OBJ_TEXTURES];
-	int			numTVertices;
-	int			numTIndices;
+	int					numTPositions;
+	XMFLOAT3			TPositions[MAX_OBJ_POSITIONS];
+	int					numTNormals;
+	XMFLOAT3			TNormals[MAX_OBJ_NORMALS];
+	int					numTTextures;
+	XMFLOAT2			TTextures[MAX_OBJ_TEXTURES];
+	int					numTVertices;
+	int					numTIndices;
 
 	int						numInstances;
 	Instance_OBJ			ModelInstances[MAX_OBJ_INSTANCES];
@@ -128,11 +143,17 @@ public:
 	void ModelOBJ::DrawMesh_Opaque(LPDIRECT3DDEVICE9 D3DDevice);
 	void ModelOBJ::DrawMesh_Transparent(LPDIRECT3DDEVICE9 D3DDevice);
 	void ModelOBJ::DrawBoundingBoxes(LPDIRECT3DDEVICE9 D3DDevice);
-	void ModelOBJ::Destroy();
+	HRESULT ModelOBJ::DrawNormalVecters(LPDIRECT3DDEVICE9 D3DDevice, float LenFactor);
 
 	HRESULT ModelOBJ::SetTexture(LPDIRECT3DDEVICE9 D3DDevice, int GroupID);
 	HRESULT ModelOBJ::UpdateVertices(LPDIRECT3DDEVICE9 D3DDevice, int GroupID);
 
 private:
+	Object_OBJ		ModelObject;
+	Group_OBJ		ModelGroups[MAX_OBJ_GROUPS+1];
+	Material_OBJ	ModelMaterials[MAX_OBJ_MATERIALS];
+	BoundingBox_OBJ	ModelBoundingBoxes[MAX_OBJ_GROUPS];
 
+	VERTEX_OBJ		Vertices[MAX_OBJ_VERTICES];
+	INDEX_OBJ		Indices[MAX_OBJ_INDICES];
 };
